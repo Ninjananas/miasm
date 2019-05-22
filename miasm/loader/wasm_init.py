@@ -339,13 +339,6 @@ def can_be_exported(cls):
 
 
 class Name(str, WasmItem):
-    '''
-    Tries to behave like a str, except that bytes() returns the wasm version
-    Due to a bug, it is not possible to inherit the 'str' class:
-    'str' subclasses cannot overwrite __bytes__ method
-    This bug is solved in Python 3.5+
-    https://hg.python.org/cpython/rev/1e54adef4064
-    '''
     __slots__=[]
 
     def __init__(self, string):
@@ -1715,7 +1708,7 @@ class Wasm(object):
         self.version = struct.unpack('<I', self.header[4:8])[0]
         if self.version != 1:
             log.error("Version '{}' of wasm isn't supported, aborting...".format(self.version))
-            raise ContainerSignatureException("Unsupported wasm version")
+            raise ContainerParsingException("Unsupported wasm version")
 
         self.content = WasmModule(self, wasmstr)
 
