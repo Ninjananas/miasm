@@ -126,50 +126,13 @@ class instruction_wasm(instruction):
         else:
             fds
         return o
-        # if isinstance(expr, ExprId):
-        #     o = str(expr)
-        # elif isinstance(expr, ExprMem):
-        #     if expr.ptr.is_int() or expr.ptr.is_id():
-        #         o = "[%s]" % expr.ptr
-        #     else:
-        #         fds
-        # elif expr.is_loc():
-        #     if loc_db is not None:
-        #         return loc_db.pretty_str(expr.loc_key)
-        #     else:
-        #        return str(expr)
-            #     else:
-            #         o = "0x0(%s)" % expr.ptr
-            # elif isinstance(expr.ptr, ExprOp):
-            #     o = "%s(%s)" % (expr.ptr.args[1], expr.ptr.args[0])
-
-        # elif expr.is_loc():
-        #     if loc_db is not None:
-        #         return loc_db.pretty_str(expr.loc_key)
-        #     else:
-        #         return str(expr)
-        # elif isinstance(expr, ExprOp) and expr.op == "autoinc":
-        #     o = "@%s+" % str(expr.args[0])
-        # elif isinstance(expr, ExprMem):
-        #     if isinstance(expr.ptr, ExprId):
-        #         if index == 0:
-        #             o = "@%s" % expr.ptr
-        #         else:
-        #             o = "0x0(%s)" % expr.ptr
-        #     elif isinstance(expr.ptr, ExprInt):
-        #         o = "@%s" % expr.ptr
-        #     elif isinstance(expr.ptr, ExprOp):
-        #         o = "%s(%s)" % (expr.ptr.args[1], expr.ptr.args[0])
-        # else:
-        #     raise NotImplementedError('unknown instance expr = %s' % type(expr))
-        # return o
 
     @property
     def is_structure(self):
         return self.name in ['loop', 'block', 'end', 'if', 'else']
 
     def dstflow(self):
-        return self.name in ['br', 'br_if', 'br_table']
+        return self.name in ['br', 'br_if', 'br_table', 'return']
 
     def dstflow2label(self, loc_db):
         fds
@@ -182,7 +145,7 @@ class instruction_wasm(instruction):
         self.args[1] = ExprLoc(loc_key, expr.size)
 
     def breakflow(self):
-        return self.name in ['br', 'br_if', 'br_table', 'if', 'else', 'call'] # call_indirect ?
+        return self.name in ['br', 'br_if', 'br_table', 'if', 'else', 'call', 'return'] # call_indirect ?
 
     def splitflow(self):
         return self.name in ['br_if', 'if', 'call'] # call_indirect ?
@@ -195,7 +158,9 @@ class instruction_wasm(instruction):
 
     def getdstflow(self, loc_db):
         if self.name in ['br', 'br_if']:
-            return self.args[0]
+            return self.args[0] # br idx
+        if self.name in ['call']: # call_indirect ?
+            return self.args[0] # func idx
         fds
 
     def get_symbol_size(self, symbol, loc_db):
@@ -412,12 +377,21 @@ class imm_7_arg(imm_7_noarg, wasm_arg):
     def decode(self, v):
         val = 0
         n_bits = 0
-        
         # Get previous bytes of the LEB128 integer
-        for f in self.parent.fields_order:
-            if f.cls is not None and f.cls[0] == imm_7_noarg:
-                val += int(f.expr) * (1 << n_bits)
-                n_bits += 7
+        prev_bytes = []
+        finding_head = True
+        for f in self.parent.fields_order[::-1]:
+            if finding_head:
+                if f is self:
+                    finding_head = False
+                continue
+            if (f.cls is None) or (imm_7_noarg not in f.cls):
+                break
+            prev_bytes = [f] + prev_bytes
+
+        for f in prev_bytes:
+            val += int(f.expr) * (1 << n_bits)
+            n_bits += 7
 
         # Add current byte)
         val += v * (1 << n_bits)

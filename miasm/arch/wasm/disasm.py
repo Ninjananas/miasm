@@ -9,6 +9,7 @@ import logging
 log_asmblock = logging.getLogger("asmblock")
 
 def get_loc(loc_db, func_name, offset):
+    #return loc_db.add_location()
     return loc_db.get_or_create_name_location(func_name + '_{}'.format(offset))
 
 class WasmStruct(object):
@@ -127,6 +128,8 @@ class PendingBasicBlocks(object):
             if arg >= len(self._br_todo):
                 raise Exception('Bad br')
             self._br_todo[-1-arg].append(block)
+        elif name == 'return':
+            self._br_todo[0].append(block)
         else:
             self._add_done(block)
 
@@ -159,6 +162,14 @@ class dis_wasm(disasmEngine): #disasmEngine):
             error = AsmBlockBad.ERROR_IO
         return instr, error
 
+    def get_func_name(self, idx):
+        '''Returns the name of the function number @idx'''
+        func_name = self.cont._executable.content.functions[idx].name
+        if func_name is None:
+            func_name = ""
+            #func_name = "_function_{}".format(func_idx)
+        return "fn#{} {}".format(idx, func_name)
+
     def dis_func(self, func_idx, blocks=None):
         '''
         Disassembles a wasm function's body.
@@ -171,9 +182,7 @@ class dis_wasm(disasmEngine): #disasmEngine):
         func = self.cont._executable.content.functions[func_idx]
 
         # Get func name or create it
-        func_name = func.name
-        if func_name is None:
-            func_name = "_function_{}".format(func_idx)
+        func_name = self.get_func_name(func_idx)
 
         if is_imported(func):
             res = AsmCFG(self.loc_db)
@@ -240,12 +249,24 @@ class dis_wasm(disasmEngine): #disasmEngine):
                 log_asmblock.debug(instr)
                 log_asmblock.debug(instr.args)
 
+                # Stop block in case of 'end' or 'loop'
+                # -> forces the creation of a location (maybe useless for some 'end's)
+                if instr.name in ['end', 'loop'] and lines_cpt > 1:
+                    loc_key_cst = get_loc(self.loc_db, func_name, cur_offset)
+                    cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
+                    break
+
                 # Add instr to block
                 cur_block.addline(instr)
 
                 # Declare structure pseudo-instructions
                 if instr.is_structure:
-                    pending_blocks.structure_instr_at(instr.name, cur_offset)
+                    pending_blocks.structure_instr_at(instr.name, cur_offset)                    
+
+                if instr.is_subcall():
+                    call_key = self.loc_db.get_or_create_name_location(
+                        self.get_func_name(int(instr.getdstflow(None))))
+                    cur_block.bto.add(AsmConstraint(call_key, AsmConstraint.c_to))
 
                 # Increment offset
                 cur_offset += instr.l
@@ -254,9 +275,6 @@ class dis_wasm(disasmEngine): #disasmEngine):
                     continue
                 
                 if instr.splitflow() and not (instr.is_subcall() and self.dontdis_retcall):
-                    add_next_offset = True
-                    
-                if add_next_offset:
                     loc_key_cst = get_loc(self.loc_db, func_name, cur_offset)
                     cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
 

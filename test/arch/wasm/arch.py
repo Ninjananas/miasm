@@ -40,6 +40,10 @@ reg_tests_wasm = [
      "0c00"),
     ("xxxx    call       0x40",
      "10C000"),
+    ("xxxx    local.set  0x99",
+     "219901"),
+    ("xxxx    i32.load8_s offset=0x3 align=0x2",
+     "2C0302"),
 ]
 
 ts = time.time()
