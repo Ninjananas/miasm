@@ -1,7 +1,7 @@
 from miasm.core.asmblock import disasmEngine, AsmBlock
 from miasm.core.utils import Disasm_Exception
 from miasm.arch.wasm.arch import mn_wasm
-from miasm.core.asmblock import AsmConstraint, AsmCFG
+from miasm.core.asmblock import AsmConstraint, AsmCFG, AsmBlockBad
 from miasm.loader.wasm_init import is_imported
 import copy
 import logging
@@ -231,7 +231,7 @@ class dis_wasm(disasmEngine): #disasmEngine):
                 instr, error = self.dis_instr(bs, cur_offset)
 
                 if instr is None:
-                    log_asmblock.warning("cannot disasm at %X", int(off_i))
+                    log_asmblock.warning("cannot disasm at %X", int(cur_offset))
                     raise Exception("Disasm error: {}".format(error))
                     ''' ORIGINAL BEHAVIOUR~
                     if not cur_block.lines:

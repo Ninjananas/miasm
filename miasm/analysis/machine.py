@@ -12,7 +12,7 @@ class Machine(object):
 
     __available = ["arml", "armb", "armtl", "armtb", "sh4", "x86_16", "x86_32",
                    "x86_64", "msp430", "mips32b", "mips32l",
-                   "aarch64l", "aarch64b", "ppc32b", "mepl", "mepb"]
+                   "aarch64l", "aarch64b", "ppc32b", "mepl", "mepb", "wasm", "toy"]
 
 
     def __init__(self, machine_name):
