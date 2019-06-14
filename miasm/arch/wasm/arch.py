@@ -122,7 +122,19 @@ class instruction_wasm(instruction):
         if isinstance(expr, ExprInt): # Only valid for standard integers
             o = str(expr)
         elif isinstance(expr, ExprId):
-            o = "(result {})".format(expr.name) #
+            # valtype in structure's return
+            if expr.name in ['i32', 'i64', 'f32', 'f64']:
+                o = "(result {})".format(expr.name)
+
+            elif expr.name.startswith('$'): # structure label
+                o = expr.name
+
+            else:
+                print("--------------")
+                print(expr.name)
+                print("--------------")
+                fds
+            
         else:
             fds
         return o

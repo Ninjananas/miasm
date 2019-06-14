@@ -3,6 +3,7 @@ from miasm.core.utils import Disasm_Exception
 from miasm.arch.wasm.arch import mn_wasm
 from miasm.core.asmblock import AsmConstraint, AsmCFG, AsmBlockBad
 from miasm.loader.wasm_init import is_imported
+from miasm.expression.expression import ExprId
 import copy
 import logging
 
@@ -12,13 +13,21 @@ def get_loc(loc_db, func_name, offset):
     #return loc_db.add_location()
     return loc_db.get_or_create_name_location(func_name + '_{}'.format(offset))
 
+
+_prev_labels = {'loop': 0, 'if': 0, 'block': 0}
+def get_new_label(kind):
+    global _prev_labels
+    a = _prev_labels[kind]
+    _prev_labels[kind] += 1
+    return "${}{}".format(kind, a)
+
 class WasmStruct(object):
     '''
     Defines a Wasm structure (its start and its stop)
     The possible kinds of structures are:
     'func', 'loop', 'block', 'if'
     '''
-    __slots__ = ['kind', 'start_key', 'end_key', 'after_else_key', 'func_name']
+    __slots__ = ['kind', 'start_key', 'end_key', 'after_else_key', 'func_name', 'label']
 
     def __init__(self, loc_db, kind, func_name, start_offset):
         self.func_name = func_name
@@ -26,6 +35,10 @@ class WasmStruct(object):
         self.start_key = get_loc(loc_db, func_name, start_offset)
         self.end_key = None
         self.after_else_key = None
+        if kind == 'func':
+            self.label = None
+        else:
+            self.label = get_new_label(kind)
 
     def set_end_off(self, loc_db, offset):
         if self.end_key is not None:
@@ -80,7 +93,14 @@ class PendingBasicBlocks(object):
         self.done.append(block)
         block.fix_constraints()
 
-    def structure_instr_at(self, kind, offset):
+    def structure_instr_at(self, instr, offset):
+        try:
+            kind = instr.name
+        except AttributeError:
+            kind = instr
+
+        # If end is found, this variable is set
+        pop_struct = None
         if kind in ['func', 'loop', 'block', 'if']:
             self._structs.append(WasmStruct(self.loc_db, kind, self.func_name, offset))
             self._br_todo.append([])
@@ -90,17 +110,17 @@ class PendingBasicBlocks(object):
             self._structs[-1].set_else_off(self.loc_db, offset)
 
         elif kind == 'end':
-            struct = self._structs.pop()
-            struct.set_end_off(self.loc_db, offset)
+            pop_struct = self._structs.pop()
+            pop_struct.set_end_off(self.loc_db, offset)
             br_todo = self._br_todo.pop()
             if_todo = self._if_todo.pop()
 
-            br_key = struct.branch_key
+            br_key = pop_struct.branch_key
             for block in br_todo:
                 block.bto.add(AsmConstraint(br_key, AsmConstraint.c_to))
                 self._add_done(block)
             
-            else_key = struct.after_else_key
+            else_key = pop_struct.after_else_key
             if len(if_todo) > 1:
                 raise Exception('Malformed code')
             if if_todo != []:
@@ -110,11 +130,18 @@ class PendingBasicBlocks(object):
         else:
             raise Exception('{} is not a structure instruction'.format(kind))
 
+        # Insert label
+        if kind != 'func':
+            if pop_struct is not None: # last struct has been poped (end)
+                label = pop_struct.label
+            else:
+                label = self._structs[-1].label
+            if label is not None:
+                instr.args = [ExprId(label, 0)] + instr.args
+
     def add_block(self, block):
         name = block.lines[-1].name
         if name == 'if':
-            if self._structs[-1].kind != 'if':
-                raise Exception('Unexpected \'if\'')
             self._if_todo[-1].append(block)
 
         elif name == 'else':
@@ -128,8 +155,13 @@ class PendingBasicBlocks(object):
             if arg >= len(self._br_todo):
                 raise Exception('Bad br')
             self._br_todo[-1-arg].append(block)
+            label = self._structs[-1].label
+            if label is not None:
+                block.lines[-1].args = [ExprId(label, 0)]
+
         elif name == 'return':
             self._br_todo[0].append(block)
+
         else:
             self._add_done(block)
 
@@ -261,7 +293,7 @@ class dis_wasm(disasmEngine): #disasmEngine):
 
                 # Declare structure pseudo-instructions
                 if instr.is_structure:
-                    pending_blocks.structure_instr_at(instr.name, cur_offset)                    
+                    pending_blocks.structure_instr_at(instr, cur_offset)                    
 
                 if instr.is_subcall():
                     call_key = self.loc_db.get_or_create_name_location(
