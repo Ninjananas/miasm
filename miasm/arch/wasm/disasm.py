@@ -155,7 +155,7 @@ class PendingBasicBlocks(object):
             if arg >= len(self._br_todo):
                 raise Exception('Bad br')
             self._br_todo[-1-arg].append(block)
-            label = self._structs[-1].label
+            label = self._structs[-1-arg].label
             if label is not None:
                 block.lines[-1].args = [ExprId(label, 0)]
 
