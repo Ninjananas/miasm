@@ -196,7 +196,7 @@ class dis_wasm(disasmEngine): #disasmEngine):
 
     def get_func_name(self, idx):
         '''Returns the name of the function number @idx'''
-        func_name = self.cont._executable.content.functions[idx].name
+        func_name = self.cont._executable.functions[idx].name
         if func_name is None:
             func_name = ""
             #func_name = "_function_{}".format(func_idx)
@@ -211,7 +211,7 @@ class dis_wasm(disasmEngine): #disasmEngine):
         - ignores self.dont_dis
         '''
         #log_asmblock.info("dis block all")
-        func = self.cont._executable.content.functions[func_idx]
+        func = self.cont._executable.functions[func_idx]
 
         # Get func name or create it
         func_name = self.get_func_name(func_idx)
