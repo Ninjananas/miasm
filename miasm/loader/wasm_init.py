@@ -1700,9 +1700,9 @@ class Wasm(object):
         if wasmstr == None:
             wasmstr = b"\x00\x61\x73\x6d\x01\x00\x00\x00" # Empty wasm file version 01
         self.header = wasmstr[:8]
-        self.magic = struct.unpack('<I', self.header[:4])[0]
-        if self.magic != 0x6d736100:
-            log.error("{} is not the WASM magic number, aborting...".format(hex(self.magic)))
+        magic = struct.unpack('<I', self.header[:4])[0]
+        if magic != 0x6d736100:
+            log.error("{} is not the WASM magic number, aborting...".format(hex(magic)))
             raise ContainerSignatureException("Wrong Magic Number in wasm module")
         self.version = struct.unpack('<I', self.header[4:8])[0]
         if self.version != 1:
@@ -1717,12 +1717,6 @@ class Wasm(object):
 
     def __eq__(self, other):
         return self.header == other.header and self.content == other.content
-
-    def __getitem__(self, item): #TODO# ?
-        pass
-
-    def __setitem__(self, item, data): #TODO# ?
-        pass
 
     def build(self):
         tmp = self.content.build()
