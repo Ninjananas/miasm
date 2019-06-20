@@ -1217,12 +1217,11 @@ def content_eq(a, b):
 
 @prop('name', Name, optional=True)
 class WasmModule(object):
-    __slots__ = ['_parent', '_slist', '_builders', '_tmp_signatures',
+    __slots__ = ['_slist', '_builders', '_tmp_signatures',
                  'functions', 'mems', 'tables', 'globs',
                  '_name', 'entry', 'elements', 'data']
 
-    def __init__(self, parent, wasmstr):
-        self._parent = parent
+    def __init__(self, wasmstr):
         self._slist = []
         i = 8
         size = len(wasmstr)
@@ -1710,7 +1709,7 @@ class Wasm(object):
             log.error("Version '{}' of wasm isn't supported, aborting...".format(self.version))
             raise ContainerParsingException("Unsupported wasm version")
 
-        self.content = WasmModule(self, wasmstr)
+        self.content = WasmModule(wasmstr)
 
     def resize(self, old, new):
         # Not needed
