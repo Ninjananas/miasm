@@ -1148,29 +1148,6 @@ SECTIONS = [
     DataSection,
 ]
 
-def create_function(signature=[],
-             body = b"",
-             locs = [],
-             name = None,
-             import_name = None,
-             lnames = None,
-             mod = None):
-    '''
-    Create a wasm function object.
-    '''
-    return {'signature': signature,
-            'body': body,
-            'locs': locs,
-            'name': name,
-            'lnames': lnames,
-            'mod': mod,
-            'import_name': import_name}
-
-
-def sign(f):
-    '''Returns a string that is unique to the signature of function (dict) @f'''
-    return 'p' + ''.join(f['signature']['params']) + 'r' + ''.join(f['signature']['res'])
-
 def add_section_header(section_type):
     def builder_decorator(func):
         def func_wrapper(*args, **kwargs):
@@ -1181,410 +1158,6 @@ def add_section_header(section_type):
             return int_to_byte(section_type) + serializer.u32(l) + res
         return func_wrapper
     return builder_decorator
-
-def content_eq(a, b):
-    '''Test if the content of two objects are the same (objects can be nested dicts/lists)'''
-    if type(a) != type(b):
-        return False
-
-    if type(a) == list:
-        b = b[:]
-        for i in a:
-            l = range(len(b))
-            found = False
-            for j in l:
-                if content_eq(i, b[j]):
-                    b[j:j+1] = []
-                    found = True
-                    break
-            if found:
-                continue
-            return False
-        return len(b) == 0
-
-    if type(a) == dict:
-        for i in a:
-            if not i in b:
-                return False
-            if not content_eq(a[i], b[i]):
-                return False
-        for i in b:
-            if not i in a:
-                return False
-        return True
-
-    return a == b
-
-@prop('name', Name, optional=True)
-class WasmModule(object):
-    __slots__ = ['_slist', '_builders', '_tmp_signatures',
-                 'functions', 'mems', 'tables', 'globs',
-                 '_name', 'entry', 'elements', 'data']
-
-    def __init__(self, wasmstr):
-        self._slist = []
-        i = 8
-        size = len(wasmstr)
-        while i != size:
-            self._slist.append(Section.new(wasmstr, i))
-            i += self._slist[-1].size
-
-        self._validate_sections()
-        
-        self._init_attrs()
-
-        self._init_imports()
-        self._init_local_functions()
-        self._init_local_tables()
-        self._init_local_mems()
-        self._init_local_globals()
-        self._init_exports()
-        self._init_start()
-        self._init_elements()
-        self._init_data()
-        self._init_name()
-
-        self._builders = [
-            WasmModule._build_type,
-            WasmModule._build_import,
-            WasmModule._build_function,
-            WasmModule._build_table,
-            WasmModule._build_memory,
-            WasmModule._build_global,
-            WasmModule._build_export,
-            WasmModule._build_start,
-            WasmModule._build_element,
-            WasmModule._build_code,
-            WasmModule._build_data,
-            WasmModule._build_name,
-        ]
-
-        super(WasmModule, self).__init__()
-
-    def _get_sections_by_name(self, name):
-        '''Returns a list of 'custom' sections that have the name 'name\''''
-        return [s for s in self._slist if s.stype == SHT_CUSTOM and s.name == name]
-
-    def _get_section_by_id(self, sid):
-        '''Returns the first section that has the specified id'''
-        for s in self._slist:
-            if s.stype == sid:
-                return s
-        return None
-
-    def _init_attrs(self):
-        self.functions = []
-        self.tables = []
-        self.mems = []
-        self.globs = []
-
-    def _init_imports(self):
-        
-        try:
-            signatures = self._get_section_by_id(SHT_TYPE).content
-        except:
-            signatures = []
-
-        try:
-            imports = self._get_section_by_id(SHT_IMPORT).content
-        except:
-            return
-
-        for imp in imports:
-            t = imp.desc._importtype
-            if t == 'func':
-                self.functions.append(
-                    ImportedFunction(
-                        imp.info,
-                        signatures[imp.desc._content].__deepcopy__()))
-            elif t == 'table':
-                self.tables.append(
-                    ImportedTable(imp.info, imp.desc._content))
-            elif t == 'mem':
-                self.mems.append(
-                    ImportedMemory(imp.info, imp.desc._content))
-            elif t == 'global':
-                self.globs.append(
-                    ImportedGlobal(imp.info, imp.desc._content))
-            else:
-                raise ContainerParsingException("Error")
-
-    def _init_local_functions(self):
-        '''
-        Parses content of sections for information about local functions
-        Does not search if the function is exported nor its name,
-        these must be specified later manually
-        '''
-        try:
-            signatures = self._get_section_by_id(SHT_TYPE).content
-            codes = self._get_section_by_id(SHT_CODE).content
-            funcs = self._get_section_by_id(SHT_FUNCTION).content
-        except:
-            return
-
-        for i in range(len(funcs)):
-            self.functions.append(
-                LocalFunction(
-                    code = codes[i],
-                    signature = signatures[funcs[i]].__deepcopy__()))
-
-    def _init_local_tables(self):
-        try:
-            self.tables.extend(self._get_section_by_id(SHT_TABLE).content)
-        except:
-            return
-
-    def _init_local_mems(self):
-        try:
-            self.mems.extend(self._get_section_by_id(SHT_MEMORY).content)
-        except:
-            return
-
-    def _init_local_globals(self):
-        try:
-            self.globs.extend(self._get_section_by_id(SHT_GLOBAL).content)
-        except:
-            return
-
-    def _init_exports(self):
-        try:
-            exports = self._get_section_by_id(SHT_EXPORT).content
-        except:
-            return
-
-        for exp in exports:
-            if exp.desc._exporttype == 'func':
-                dst = self.functions
-            elif exp.desc._exporttype == 'table':
-                dst = self.tables
-            elif exp.desc._exporttype == 'mem':
-                dst = self.mems
-            elif exp.desc._exporttype == 'global':
-              dst = self.globs
-            else:
-                raise ContainerParsingException("Error")
-            dst[exp.desc._idx].export_name = exp.name
-
-    def _init_start(self):
-        start = self._get_section_by_id(SHT_START)
-        self.entry = None
-        if start is not None:
-            self.entry = start.content
-
-    def _init_elements(self):
-        try:
-            self.elements = self._get_section_by_id(SHT_ELEMENT).content
-        except:
-            self.elements = WasmItemOptionVec([], Element)
-
-    def _init_data(self):
-        try:
-            self.data = self._get_section_by_id(SHT_DATA).content
-        except:
-            self.data = WasmItemOptionVec([], Data)
-
-    def _init_name(self):
-        '''Try to parse 'name' custom section for symbols'''
-        self.name = None
-        tmp = self._get_sections_by_name('name')
-        fnames = None
-        lnames = None
-        if len(tmp) != 0:
-            for ss in tmp[0].content:
-                if ss.typ == 0:
-                    self.name = ss.content
-                elif ss.typ == 1:
-                    fnames = ss.content.assocs
-                elif ss.typ == 2:
-                    lnames = ss.content.iassocs
-
-        if fnames is not None:
-            for f in fnames:
-                self.functions[f.idx].name = f.name
-
-        if lnames is not None:
-            for f in lnames:
-                for l in f.nmap.assocs:
-                    self.functions[f.idx].locals[l.idx].name = l.name        
-
-    def _validate_sections(self):
-        '''Checks the validity (presence, uniqueness...) of present sections'''
-        last_section = 0
-        for s in self._slist:
-
-            # Check that official sections appear only once and in order
-            if s.stype != 0:
-                if last_section >= s.stype:
-                    log.error("Invalid wasm file: section {} is either duplicate or misplaced".format(s.stype))
-                    raise ContainerParsingException("Duplicate or misplaced section")
-                else:
-                    last_section = s.stype
-            else:
-                # Check that 'name' section follows 'Data' section
-                # (other custom sections are allowed between 'Data' and 'name'
-                if s.name == "name" and last_section != SHT_DATA:
-                    log.warn("Section 'name' misplacement: should follow Data Section.")
-
-        log.info("Sections placement validated")
-
-    
-    def build(self):
-        '''
-        Re-builds wasm sections (without the wasm header) and returns them in a StrPatchwork
-        '''
-        res = StrPatchwork()
-        for builder in self._builders:
-            res += builder(self)
-        self._inject_unknown_custom(res)
-        return res
-
-    @add_section_header(SHT_TYPE)
-    def _build_type(self):
-        signs = WasmItemOptionVec([], Signature)
-        for f in self.functions:
-            if f.signature not in signs:
-                signs.append(f.signature)
-        self._tmp_signatures = signs
-        return signs.build()
-
-    @add_section_header(SHT_IMPORT)
-    def _build_import(self):
-        imprts = WasmItemOptionVec([], Import)
-        for i in [self.functions, self.tables, self.mems, self.globs]:
-            imprts.extend(find_imports(i))
-        return imprts.build()
-
-    @add_section_header(SHT_FUNCTION)
-    def _build_function(self):
-        idxs = []
-        for f in filter_local(self.functions):
-            for i in range(len(self._tmp_signatures)):
-                if self._tmp_signatures[i] == f.signature:
-                    idxs.append(i)
-                    break
-        return serializer.u32(len(idxs)) + b''.join([serializer.u32(i) for i in idxs])
-
-    @add_section_header(SHT_TABLE)
-    def _build_table(self):
-        return WasmItemOptionVec([t.tabletype for t in filter_local(self.tables)],
-                                 TableType).build()
-
-    @add_section_header(SHT_MEMORY)
-    def _build_memory(self):
-        return WasmItemOptionVec([m.limits for m in filter_local(self.mems)],
-                                 Limits).build()
-
-    @add_section_header(SHT_GLOBAL)
-    def _build_global(self):
-        return WasmItemOptionVec(filter_local(self.globs),
-                                 Global).build()
-
-    @add_section_header(SHT_EXPORT)
-    def _build_export(self):
-        exprts = WasmItemOptionVec([], Export)
-        for i in [self.functions, self.tables, self.mems, self.globs]:
-            exprts.extend(find_exports(i))
-        return exprts.build()
-
-    @add_section_header(SHT_START)
-    def _build_start(self):
-        if self.entry is not None:
-            return serializer.u32(self.entry)
-        return b''
-
-    @add_section_header(SHT_ELEMENT)
-    def _build_element(self):
-        return self.elements.build()
-
-    @add_section_header(SHT_CODE)
-    def _build_code(self):
-        return WasmItemOptionVec([f.code for f in filter_local(self.functions)],
-                                 FunctionCode).build()
-
-    @add_section_header(SHT_DATA)
-    def _build_data(self):
-        return self.data.build()
-
-    @add_section_header(SHT_CUSTOM)
-    def _build_name(self):
-        res = b''
-        # Add module name, if any
-        if self.name is not None:
-            res += b'\x00' + serializer.u32(len(self.name)) + self.name
-
-        # Look for function or local names
-        fnames = WasmItemVec([], NameAssoc)
-        lnames = WasmItemVec([], IndirectNameAssoc)
-        for i in range(len(self.functions)):
-            f = self.functions[i]
-            if hasattr(f, 'name') and f.name is not None:
-                fnames.append(NameAssoc(i, f.name))
-            assocs = []
-            for j in range(len(f.locals)):
-                loc = f.locals[j]
-                if hasattr(loc, 'name') and loc.name is not None:
-                    assocs.append(NameAssoc(j, loc.name))
-            if len(assocs) > 0:
-                lnames.append(IndirectNameAssoc(i, NameMap(assocs)))
-
-        if len(fnames) > 0:
-            tmp = fnames.build()
-            res += b'\x01' + serializer.u32(len(tmp)) + tmp
-        if len(lnames) > 0:
-            tmp = lnames.build()
-            res += b'\x02' + serializer.u32(len(tmp)) + tmp
-        if len(res) != 0:
-            res = Name('name').build() + res
-        return res
-
-
-    @add_section_header(SHT_CUSTOM)
-    def _build_unknown_custom(self, s):
-        return s.content
-
-
-    def _inject_unknown_custom(self, out):
-        '''
-        Try to re-inject custom sections that were not parsed.
-        To do so, the type (and name if custom) of the sections directly before and after a block of unknown sections\
-        when the file was parsed must be the same as in the output build.
-        If this is not possible, the block of custom sections are placed at the end of the output
-        '''
-        todo = []
-        i = 0
-        l = len(self._slist)
-        while i != l:
-            s = self._slist[i]
-            if s.stype == SHT_CUSTOM and s.unknown:
-                block = {'content': b'', 'prev': None, 'next': None}
-                if i > 0:
-                    block['prev'] = _sec_desc(self._slist[i-1])
-                while i!=l:
-                    s = self._slist[i]
-                    if not (s.stype == SHT_CUSTOM and s.unknown):
-                        break
-                    block['content'] += self._build_unknown_custom(s)
-                    i += 1
-                if i!=l:
-                    block['next'] = _sec_desc(self._slist[i])
-                todo.append(block)
-            i += 1
-        for t in todo:
-            if t['prev'] is not None:
-                ofs = find_section_offset(out, 0, t['prev'], end=True)
-                if t['next'] is not None:
-                    ofs2 = find_section_offset(out, 0, t['next'], end=False)
-                    if ofs != ofs2:
-                        ofs = None
-            elif t['next'] is not None:
-                ofs = find_section_offset(out, 0, t['next'], end=False)
-            else:
-                ofs = 0
-            if ofs is not None:
-                out[ofs:ofs] = t['content']
-            else:
-                log.warn("Some unknown custom sections were added at the end of the build because I couldn't gess where to put them...")
-                out += t['content']
 
 def find_section_offset(wasmstr, first_section_offset, s_desc, end=False):
     '''Returns the offset in @wasmstr at which the section described by @s_desc starts (or ends if @end==True)'''
@@ -1700,6 +1273,10 @@ class Wasm(object):
                  'functions', 'mems', 'tables', 'globs',
                  '_name', 'entry', 'elements', 'data', 'header']
 
+    @classmethod
+    def from_path(cls, path):
+        return cls(open(path, 'rb').read())
+
     def __init__(self, wasmstr=None):
         super(Wasm, self).__init__()
         if wasmstr == None:
@@ -1741,18 +1318,18 @@ class Wasm(object):
         self._init_name()
 
         self._builders = [
-            WasmModule._build_type,
-            WasmModule._build_import,
-            WasmModule._build_function,
-            WasmModule._build_table,
-            WasmModule._build_memory,
-            WasmModule._build_global,
-            WasmModule._build_export,
-            WasmModule._build_start,
-            WasmModule._build_element,
-            WasmModule._build_code,
-            WasmModule._build_data,
-            WasmModule._build_name,
+            Wasm._build_type,
+            Wasm._build_import,
+            Wasm._build_function,
+            Wasm._build_table,
+            Wasm._build_memory,
+            Wasm._build_global,
+            Wasm._build_export,
+            Wasm._build_start,
+            Wasm._build_element,
+            Wasm._build_code,
+            Wasm._build_data,
+            Wasm._build_name,
         ]
 
     def resize(self, old, new):
@@ -1767,8 +1344,18 @@ class Wasm(object):
         tmp[0:0] = self.header
         return bytes(tmp)
 
-    def __repr__(self): #TODO# ?
-        return "Wasm version {}".format(self.version)
+    def __repr__(self): 
+        return """\
+        Wasm v1 module containing:
+        \t-{} functions
+        \t-{} tables
+        \t-{} memories
+        \t-{} globals\
+        """.format(
+            len(self.functions),
+            len(self.tables),
+            len(self.mems),
+            len(self.globs),)
 
     def _get_sections_by_name(self, name):
         '''Returns a list of 'custom' sections that have the name 'name\''''
