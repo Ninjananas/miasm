@@ -321,22 +321,21 @@ def prop_list(name, elem_type, optional=False):
         return cls
     return wrapper
 
-def imported(base_type):
-    def wrapper(cls):
-        cls = prop('import_info', ImportInfo)(cls)
-
-        return cls
-    return wrapper
-
 def can_be_exported(cls):
     cls = prop('export_name', Name, optional = True)(cls)
         
-    def exported(self):
+    def is_exported(self):
         return hasattr(self, 'export_name') and self.export_name != None
 
-    setattr(cls, 'exported', property(exported))
+    setattr(cls, 'is_exported', property(is_exported))
     return cls
 
+def can_be_imported(cls):
+    def is_imported(self):
+        return hasattr(self, 'import_info') and self.import_info != None
+        
+    setattr(cls, 'is_imported', property(is_imported))
+    return cls
 
 class Name(str, WasmItem):
     __slots__=[]
@@ -411,9 +410,6 @@ class ImportDesc(WasmItem):
         if self._importtype == 'func':
             return self._importtype.build() + serializer.u32(self._content)
         return self._importtype.build() + self._content.build()
-
-def is_imported(obj):
-    return hasattr(obj, 'import_info')
 
 @prop('info', ImportInfo)
 @prop('desc', ImportDesc)
@@ -629,6 +625,7 @@ class LocalIndexer(object):
         return len(self.params) + len(self.locs)
 
 @can_be_exported
+@can_be_imported
 @prop('signature', Signature)
 @prop('name', Name, optional = True)
 class Function(object):
@@ -651,7 +648,7 @@ class Function(object):
         else:
             res += self.name
         res += repr(self.signature)
-        if self.exported:
+        if self.is_exported:
             res += "\n\tExported as '{}'".format(self.export_name)
         return res
 
@@ -719,6 +716,7 @@ class TableType(WasmItem):
     def build(self):
         return self.elemtype.build() + self.limits.build()
 
+@can_be_imported
 @can_be_exported
 @prop('tabletype', TableType)
 class Table(WasmItem):
@@ -745,7 +743,7 @@ class ImportedTable(object):
         self.import_info = import_info
         super(ImportedTable, self).__init(*args, **kwargs)
 
-
+@can_be_imported
 @can_be_exported
 @prop('limits', Limits)
 class Memory(WasmItem):
@@ -842,6 +840,7 @@ class GlobalType(WasmItem):
     def build(self):
         return self.valtype.build() +  self.mutable.build()
 
+@can_be_imported
 @can_be_exported
 @prop('globaltype', GlobalType)
 class Global(WasmItem):
@@ -1188,7 +1187,7 @@ def filter_local(lst):
     res = []
     flag = False
     for i in lst:
-        if is_imported(i):
+        if i.is_imported:
             if flag:
                 raise Exception("Imported and non-imported are mixed up in {}"
                                 .format(lst))
@@ -1220,7 +1219,7 @@ def find_imports(lst):
     res = []
     flag = False
     for i in range(len(lst)):
-        if  not is_imported(lst[i]):
+        if  not lst[i].is_imported:
             flag = True
             continue
         if flag:
@@ -1247,7 +1246,7 @@ def find_exports(lst):
 
     res = []
     for i in range(len(lst)):
-        if lst[i].exported:
+        if lst[i].is_exported:
             res.append(Export(lst[i].export_name, ExportDesc(t, i)))
     return res
 

@@ -2,7 +2,6 @@ from miasm.core.asmblock import disasmEngine, AsmBlock
 from miasm.core.utils import Disasm_Exception
 from miasm.arch.wasm.arch import mn_wasm
 from miasm.core.asmblock import AsmConstraint, AsmCFG, AsmBlockBad
-from miasm.loader.wasm_init import is_imported
 from miasm.expression.expression import ExprId
 import copy
 import logging
@@ -71,7 +70,7 @@ class PendingBasicBlocks(object):
     - all these declaration must be made in order
     This object will store basic blocks and update them when needed.
     It updates basic blocks that end with:
-    - branches ('br', 'br_if')
+    - branches ('br', 'br_if') #TODO# br_table
     - 'if' pseudo instruction
     - 'else' pseudo instruction
     by finding their true dstflow and adding the corresponding
@@ -86,11 +85,11 @@ class PendingBasicBlocks(object):
         self.loc_db = loc_db
         self._br_todo = []
         self._if_todo = []
-        self.done = []
+        self.done = set()
         self._structs = []
 
     def _add_done(self, block):
-        self.done.append(block)
+        self.done.add(block)
         block.fix_constraints()
 
     def structure_instr_at(self, instr, offset):
@@ -216,7 +215,7 @@ class dis_wasm(disasmEngine): #disasmEngine):
         # Get func name or create it
         func_name = self.get_func_name(func_idx)
 
-        if is_imported(func):
+        if func.is_imported:
             res = AsmCFG(self.loc_db)
             res.add_block(AsmBlock(self.loc_db.get_or_create_name_location(func_name)))
             return res
