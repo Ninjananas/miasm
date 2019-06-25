@@ -48,14 +48,47 @@ class ir_toy(IntermediateRepresentation):
         return instr_ir, extra_ir
 '''
 
+PUSH_STACK = {
+    'i32': ExprAff(ExprMem(SP, )),
+}
+
+VT_SIZE = {
+    'i32': 32,
+    'i64': 64,
+    'f32': 32,
+    'i64': 64,
+}
+
+#TODO# push/pop : flottants ?
+def push(ir, valtype, val):
+    '''
+    Push a value on the operand stack
+    Returns a list of ExprAssign
+    '''
+    size = VT_SIZE[valtype]
+    aff = ExprAssign(ExprMem(ir.sp, size), ExprInt(val, size))
+    return [aff, ExprAssign(ir.sp, ExprOp('+', ir.sp, ExprInt(size, ir.sp.size)))]
+
+def pop(ir, valtype):
+    '''
+    Pops a value from the operand stack
+    '''
+    size = VT_SIZE[valtype]
+    
+    return [ExprAssign(ir.sp, ExprOp('-', ir.sp, ExprInt(size, ir.sp.size)))]
+
+mnemo_func = {
+    
+}
+
 class ir_wasm(IntermediateRepresentation):
 
     def __init__(self, loc_db=None):
         IntermediateRepresentation.__init__(self, mn_wasm, None, loc_db)
         #self.pc = PC
         #self.sp = SP
-        self.IRDst = ExprId('IRDst', 8)
-        #self.addrsize = 8
+        self.IRDst = ExprId('IRDst', 64)
+        #self.addrsize = 64
 
     def get_ir(self, instr):
         args = instr.args

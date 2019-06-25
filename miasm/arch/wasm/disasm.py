@@ -9,9 +9,15 @@ import logging
 log_asmblock = logging.getLogger("asmblock")
 
 def get_loc(loc_db, func_name, offset):
-    #return loc_db.add_location()
     return loc_db.get_or_create_name_location(func_name + '_{}'.format(offset))
 
+"""
+def get_end_loc(loc_db, label):
+    return loc_db.get_or_create_name_location(func_name + 'end_{}'.format(label))
+
+def get_end_loc(loc_db, label):
+    return loc_db.get_or_create_name_location(func_name + 'end_{}'.format(label))
+"""
 
 _prev_labels = {'loop': 0, 'if': 0, 'block': 0}
 def get_new_label(kind):
@@ -51,7 +57,7 @@ class WasmStruct(object):
         if self.kind != 'if' or self.after_else_key is not None:
             raise Exception('Malformed code')
         # 1 is the length of the 'else' pseudo-instruction
-        self.after_else_key = get_loc(loc_db, self.func_name, offset)
+        self.after_else_key = get_loc(loc_db, self.func_name, offset + 1)
 
     @property
     def branch_key(self):
@@ -59,24 +65,35 @@ class WasmStruct(object):
             return self.start_key
         return self.end_key
 
+    @property
+    def else_key(self):
+        if self.kind != 'if':
+            raise Exception("No esle key in {} structure".format(self.kind))
+        return self.after_else_key
+
 class PendingBasicBlocks(object):
     '''
     Feed this object with offsets of structured instructions and basic blocks
+    of a specific wasm function. It will store basic blocks and update them when needed.
+
     For this to work you must:
-    - declare every structured instruction you
-      ('loop', 'block', 'if', 'else', 'end')
-    - declare function start with the dummy instruction name 'func'
-    - declare every basic block you encounter
-    - all these declaration must be made in order
-    This object will store basic blocks and update them when needed.
+     - declare every structure pseudo-instruction you encounter
+       ('loop', 'block', 'if', 'else', 'end')
+     - declare function start with the dummy instruction name 'func'
+     - declare every basic block you encounter
+        --> blocks that are processed are those ending with
+            a known (pseudo-)instruction. You MUST place such
+            instructions at the end of a block and declare them here
+     - all these declaration must be made in order in the body of functions
+
     It updates basic blocks that end with:
-    - branches ('br', 'br_if') #TODO# br_table
-    - 'if' pseudo instruction
-    - 'else' pseudo instruction
+     - branches ('br', 'br_if') #TODO# br_table
+     - 'if' pseudo instruction
+     - 'else' pseudo instruction
     by finding their true dstflow and adding the corresponding
     location to the block's bto.
-    During disassembly, please declare structured
-    instructions BEFORE adding a basic block
+    During disassembly, please declare structured (pseudo-)instructions
+    BEFORE adding a basic block if both occur at the same time
     '''
     __slots__ = ['_if_todo', '_br_todo', 'done', 'loc_db', '_structs', 'func_name']
 
@@ -100,6 +117,7 @@ class PendingBasicBlocks(object):
 
         # If end is found, this variable is set
         pop_struct = None
+
         if kind in ['func', 'loop', 'block', 'if']:
             self._structs.append(WasmStruct(self.loc_db, kind, self.func_name, offset))
             self._br_todo.append([])
@@ -119,11 +137,14 @@ class PendingBasicBlocks(object):
                 block.bto.add(AsmConstraint(br_key, AsmConstraint.c_to))
                 self._add_done(block)
             
-            else_key = pop_struct.after_else_key
             if len(if_todo) > 1:
                 raise Exception('Malformed code')
             if if_todo != []:
-                if_todo[0].btp.add(AsmConstraint(else_key, AsmConstraint.c_to))
+                else_key = pop_struct.else_key
+                print(dir(if_todo[0]))
+                print(if_todo[0].fix_constraints())
+#                if_todo[0].bto.add(AsmConstraint(if_todo[0].get_next(), AsmConstraint.c_to))
+                if_todo[0].add_cst(else_key, AsmConstraint.c_next)
                 self._add_done(if_todo[0])
             
         else:
@@ -167,6 +188,7 @@ class PendingBasicBlocks(object):
     @property
     def is_done(self):
         return len(self._structs) == 0
+
 
 class dis_wasm(disasmEngine): #disasmEngine):
     attrib = None
@@ -307,7 +329,11 @@ class dis_wasm(disasmEngine): #disasmEngine):
                 
                 if instr.splitflow() and not (instr.is_subcall() and self.dontdis_retcall):
                     loc_key_cst = get_loc(self.loc_db, func_name, cur_offset)
-                    cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
+                    # 'if' branches alter execution flow when condition is not true
+                    if instr.name == 'if':
+                        cur_block.bto.add(AsmConstraint(loc_key_cst, AsmConstraint.c_to))
+                    else:
+                        cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
 
                 if self.dis_block_callback is not None:
                     self.dis_block_callback(mn=self.arch, attrib=self.attrib,
