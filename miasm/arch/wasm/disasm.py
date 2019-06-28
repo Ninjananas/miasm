@@ -11,6 +11,9 @@ log_asmblock = logging.getLogger("asmblock")
 def get_loc(loc_db, func_name, offset):
     return loc_db.get_or_create_name_location(func_name + '_{}'.format(offset))
 
+def get_loc_strict(loc_db, func_name, offset):
+    return loc_db.get_name_location(func_name + '_{}'.format(offset))
+
 """
 def get_end_loc(loc_db, label):
     return loc_db.get_or_create_name_location(func_name + 'end_{}'.format(label))
@@ -95,7 +98,8 @@ class PendingBasicBlocks(object):
     During disassembly, please declare structured (pseudo-)instructions
     BEFORE adding a basic block if both occur at the same time
     '''
-    __slots__ = ['_if_todo', '_br_todo', 'done', 'loc_db', '_structs', 'func_name']
+    __slots__ = ['_if_todo', '_br_todo', 'done', 'loc_db',
+                 '_structs', 'func_name', '_todo_structs']
 
     def __init__(self, loc_db, func_name):
         self.func_name = func_name
@@ -104,6 +108,7 @@ class PendingBasicBlocks(object):
         self._if_todo = []
         self.done = set()
         self._structs = []
+        self._todo_structs = []
 
     def _add_done(self, block):
         self.done.add(block)
@@ -141,9 +146,6 @@ class PendingBasicBlocks(object):
                 raise Exception('Malformed code')
             if if_todo != []:
                 else_key = pop_struct.else_key
-                print(dir(if_todo[0]))
-                print(if_todo[0].fix_constraints())
-#                if_todo[0].bto.add(AsmConstraint(if_todo[0].get_next(), AsmConstraint.c_to))
                 if_todo[0].add_cst(else_key, AsmConstraint.c_next)
                 self._add_done(if_todo[0])
             
@@ -158,6 +160,10 @@ class PendingBasicBlocks(object):
                 label = self._structs[-1].label
             if label is not None:
                 instr.args = [ExprId(label, 0)] + instr.args
+
+        # Add done structs for update
+        if pop_struct is not None:
+            self._todo_structs.append(pop_struct)
 
     def add_block(self, block):
         name = block.lines[-1].name
@@ -189,8 +195,46 @@ class PendingBasicBlocks(object):
     def is_done(self):
         return len(self._structs) == 0
 
+    def update_loc_names(self):
+        if not self.is_done:
+            raise Exception("Please wait end of function to update locs")
+        for s in self._todo_structs:
 
-class dis_wasm(disasmEngine): #disasmEngine):
+            # Overwrite end key's name if label exists
+            prev_name, = self.loc_db.get_location_names(s.end_key)
+            try:
+                self.loc_db.add_location_name(s.end_key, "end " + s.label)
+                self.loc_db.remove_location_name(s.end_key, prev_name)
+            except TypeError: # struct has no label
+                pass
+
+            # Overwrite start key's name if label exists
+            prev_name, = self.loc_db.get_location_names(s.start_key)
+            try:
+                self.loc_db.add_location_name(s.start_key, "start " + s.label)
+                self.loc_db.remove_location_name(s.start_key, prev_name)
+            except TypeError: # struct has no label
+                pass
+
+            # Overwrite func end's name
+            if s.kind == 'func':
+                prev_name, = self.loc_db.get_location_names(s.end_key)
+                self.loc_db.add_location_name(s.end_key, "end " + s.func_name)
+                self.loc_db.remove_location_name(s.end_key, prev_name)
+
+            if s.kind == 'if':
+                if s.else_key != s.end_key:
+                    prev_name, = self.loc_db.get_location_names(s.else_key)
+                    try:
+                        self.loc_db.add_location_name(s.else_key, "case false " + s.label)
+                        self.loc_db.remove_location_name(s.else_key, prev_name)
+                    except TypeError: # struct has no label
+                        pass
+                
+        self._todo_structs = []
+
+
+class dis_wasm(disasmEngine):
     attrib = None
 
     def __init__(self, wasm_cont=None, **kwargs):
@@ -220,8 +264,10 @@ class dis_wasm(disasmEngine): #disasmEngine):
         func_name = self.cont._executable.functions[idx].name
         if func_name is None:
             func_name = ""
+        else:
+            func_name = ' ' + func_name
             #func_name = "_function_{}".format(func_idx)
-        return "fn#{} {}".format(idx, func_name)
+        return "<fn#{}{}>".format(idx, func_name)
 
     def dis_func(self, func_idx, blocks=None):
         '''
@@ -347,6 +393,8 @@ class dis_wasm(disasmEngine): #disasmEngine):
 
             # Register current block
             pending_blocks.add_block(cur_block)
+
+        pending_blocks.update_loc_names()
 
         blocks = AsmCFG(self.loc_db)
         for block in pending_blocks.done:

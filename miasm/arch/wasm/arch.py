@@ -48,10 +48,6 @@ def align_parser(default_value):
 # Floats
 frac = Word(nums).setParseAction()
 
-#print("======================")
-#print(nums)
-#print(aplhas)
-
 #float_parser = Or()
 
 class additional_info(object):
@@ -130,9 +126,6 @@ class instruction_wasm(instruction):
                 o = expr.name
 
             else:
-                print("--------------")
-                print(expr.name)
-                print("--------------")
                 fds
             
         else:
@@ -462,6 +455,16 @@ class imm_7_arg_align_8(imm_7_arg):
     _int_len = 32
     parser = align_parser(8)
 
+class imm_7_arg_br_table_tail(imm_7_arg_32):
+    '''
+    like a classic imm_7_arg_32 but will check that
+    the number of available branches is correct
+    '''
+
+    def decode(self, v):
+        print("AAAAAAAAAAa")
+        raise Exception()
+
 VALTYPES = [
     (0x7F,'i32'),
     (0x7E,'i64'),
@@ -497,6 +500,8 @@ class block_result_no_empty(imm_noarg):
                 return True
         fds
         return False
+
+
 
 single_byte_name = bs_name(l=8, name={
     'unreachable'         : 0x00,
@@ -637,6 +642,7 @@ addop('single_byte', [single_byte_name])
 LEB128_byte = [bs('1'), bs(l=7, cls=(imm_7_noarg,))]
 LEB128_tail_32 = [bs('0'), bs(l=7, cls=(imm_7_arg_32,))]
 LEB128_tail_64 = [bs('0'), bs(l=7, cls=(imm_7_arg_64,))]
+LEB128_tail_32_br_table_tail = [bs('0'), bs(l=7, cls=(imm_7_arg_br_table_tail,))]
 LEB128_tail_offset = [bs('0'), bs(l=7, cls=(imm_7_arg_offset,))]
 LEB128_tail_align_1 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_1,))]
 LEB128_tail_align_2 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_2,))]
@@ -652,6 +658,24 @@ align_alternatives_list = [
     [LEB128_byte*i + LEB128_tail_align_4 for i in range(5)],
     [LEB128_byte*i + LEB128_tail_align_8 for i in range(5)],
 ]
+
+br_table_tail_alternatives = [LEB128_byte*i + LEB128_tail_32_br_table_tail for i in range(5)]
+
+'''
+Dirty solution... A br_table has at least 2 u32 args
+(one for the vec of table and one for default branch)
+We generate all possibilities up to a vec of 8 possible branches (default excluded).
+Will fail to disassemble if there are more to 8 branches
+'''
+N_BRANCHES_BR_TABLE = 8
+br_table_args_alternatives = []
+#TODO# RETIRER TOUT ÇA
+for head in i32_alternatives:
+    for tail in br_table_tail_alternatives:
+        for i in range(N_BRANCHES_BR_TABLE + 1):
+            for _ in range(i):
+                pass
+
 
 memarg_alternatives_1 = []
 for off_alt in offset_alternatives:
