@@ -2,13 +2,14 @@ from miasm.core.asmblock import disasmEngine, AsmBlock
 from miasm.core.utils import Disasm_Exception
 from miasm.arch.wasm.arch import mn_wasm
 from miasm.core.asmblock import AsmConstraint, AsmCFG, AsmBlockBad
-from miasm.expression.expression import ExprId
+from miasm.expression.expression import ExprId, LocKey
 import copy
 import logging
 
 log_asmblock = logging.getLogger("asmblock")
 
 def get_loc(loc_db, func_name, offset):
+    raise Exception("DEPRECATED No more get_loc")
     return loc_db.get_or_create_name_location(func_name + '_{}'.format(offset))
 
 def get_loc_strict(loc_db, func_name, offset):
@@ -35,12 +36,11 @@ class WasmStruct(object):
     The possible kinds of structures are:
     'func', 'loop', 'block', 'if'
     '''
-    __slots__ = ['kind', 'start_key', 'end_key', 'after_else_key', 'func_name', 'label']
+    __slots__ = ['kind', 'start_key', 'end_key', 'after_else_key', 'label']
 
-    def __init__(self, loc_db, kind, func_name, start_offset):
-        self.func_name = func_name
+    def __init__(self, loc_db, kind, start_key):
         self.kind = kind
-        self.start_key = get_loc(loc_db, func_name, start_offset)
+        self.start_key = start_key
         self.end_key = None
         self.after_else_key = None
         if kind == 'func':
@@ -48,19 +48,23 @@ class WasmStruct(object):
         else:
             self.label = get_new_label(kind)
 
-    def set_end_off(self, loc_db, offset):
+    def set_end_key(self, loc_db, key):
         if self.end_key is not None:
             raise Exception('Malformed code')
-        self.end_key = get_loc(loc_db, self.func_name, offset)
+        self.end_key = key
         if self.kind == 'if' and self.after_else_key is None:
             self.after_else_key = self.end_key
-        
 
-    def set_else_off(self, loc_db, offset):
+    def set_end_off(self, a, b):
+        raise Exception("DEPRECATED end_off")    
+
+    def set_else_off(self, a, b):
+        raise Exception("DEPRECATED else_off")
+
+    def set_after_else_key(self, loc_db, key):
         if self.kind != 'if' or self.after_else_key is not None:
             raise Exception('Malformed code')
-        # 1 is the length of the 'else' pseudo-instruction
-        self.after_else_key = get_loc(loc_db, self.func_name, offset + 1)
+        self.after_else_key = key
 
     @property
     def branch_key(self):
@@ -99,10 +103,9 @@ class PendingBasicBlocks(object):
     BEFORE adding a basic block if both occur at the same time
     '''
     __slots__ = ['_if_todo', '_br_todo', 'done', 'loc_db',
-                 '_structs', 'func_name', '_todo_structs']
+                 '_structs', '_todo_structs']
 
-    def __init__(self, loc_db, func_name):
-        self.func_name = func_name
+    def __init__(self, loc_db):
         self.loc_db = loc_db
         self._br_todo = []
         self._if_todo = []
@@ -114,7 +117,21 @@ class PendingBasicBlocks(object):
         self.done.add(block)
         block.fix_constraints()
 
-    def structure_instr_at(self, instr, offset):
+    def structure_instr_at(self, instr, key_or_block):
+        '''
+        Declare a structure pseudo-instruction at a specific block or key.
+        Please note that for the 'else' instruction, you have to give
+        the loc key at the next instruction (else is at end of block)
+        '''
+        if isinstance(key_or_block, LocKey):
+            key = key_or_block
+        elif isinstance(key_or_block, AsmBlock):
+            key = key_or_block.loc_key
+        elif key_or_block is None:
+            key = None
+        else:
+            raise Exception("DEPRECATED structure_inst_at with offset ?")
+
         try:
             kind = instr.name
         except AttributeError:
@@ -124,16 +141,16 @@ class PendingBasicBlocks(object):
         pop_struct = None
 
         if kind in ['func', 'loop', 'block', 'if']:
-            self._structs.append(WasmStruct(self.loc_db, kind, self.func_name, offset))
+            self._structs.append(WasmStruct(self.loc_db, kind, key))
             self._br_todo.append([])
             self._if_todo.append([])
 
         elif kind == 'else':
-            self._structs[-1].set_else_off(self.loc_db, offset)
+            self._structs[-1].set_after_else_key(self.loc_db, key)
 
         elif kind == 'end':
             pop_struct = self._structs.pop()
-            pop_struct.set_end_off(self.loc_db, offset)
+            pop_struct.set_end_key(self.loc_db, key)
             br_todo = self._br_todo.pop()
             if_todo = self._if_todo.pop()
 
@@ -199,7 +216,11 @@ class PendingBasicBlocks(object):
         if not self.is_done:
             raise Exception("Please wait end of function to update locs")
         for s in self._todo_structs:
+            if s.label is None:
+                continue
+            self.loc_db.add_location_name(s.branch_key, s.label)
 
+            continue #TODO# replace correct labels
             # Overwrite end key's name if label exists
             prev_name, = self.loc_db.get_location_names(s.end_key)
             try:
@@ -291,20 +312,26 @@ class dis_wasm(disasmEngine):
         # Get func body
         bs = func.code.body
         cur_offset = 0
-        cur_block = None
+        cur_block = AsmBlock(self.loc_db.get_or_create_name_location(func_name))
 
-        pending_blocks = PendingBasicBlocks(self.loc_db, func_name)
-        pending_blocks.structure_instr_at('func', cur_offset)
+        pending_blocks = PendingBasicBlocks(self.loc_db)
+        pending_blocks.structure_instr_at('func', cur_block)
+
         block_cpt = 0
+        after_else = False
+        prebuilt_key = None
+
         ## Block loop ##
         while not pending_blocks.is_done:
             # Start new block
             block_cpt += 1
             lines_cpt = 0
-            if block_cpt == 1: # Start of the function
-                cur_block = AsmBlock(self.loc_db.get_or_create_name_location(func_name))
-            else:
-                cur_block = AsmBlock(get_loc(self.loc_db, func_name, cur_offset))
+            if block_cpt != 1: # Not first block of the function
+                if prebuilt_key is not None:
+                    cur_block = AsmBlock(prebuilt_key)
+                    prebuilt_key = None
+                else:
+                    cur_block = AsmBlock(self.loc_db.add_location())
 
             # Check block watchdog
             if self.blocs_wd is not None and block_cpt > self.blocs_wd:
@@ -351,16 +378,21 @@ class dis_wasm(disasmEngine):
                 # Stop block in case of 'end' or 'loop'
                 # -> forces the creation of a location (maybe useless for some 'end's)
                 if instr.name in ['end', 'loop'] and lines_cpt > 1:
-                    loc_key_cst = get_loc(self.loc_db, func_name, cur_offset)
-                    cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
+                    prebuilt_key = self.loc_db.add_location()
+                    cur_block.add_cst(prebuilt_key, AsmConstraint.c_next)
                     break
+
 
                 # Add instr to block
                 cur_block.addline(instr)
 
                 # Declare structure pseudo-instructions
                 if instr.is_structure:
-                    pending_blocks.structure_instr_at(instr, cur_offset)                    
+                    if instr.name == 'else':
+                        prebuilt_key = self.loc_db.add_location()
+                        pending_blocks.structure_instr_at(instr, prebuilt_key)
+                    else:
+                        pending_blocks.structure_instr_at(instr, cur_block)
 
                 if instr.is_subcall():
                     call_key = self.loc_db.get_or_create_name_location(
@@ -374,12 +406,13 @@ class dis_wasm(disasmEngine):
                     continue
                 
                 if instr.splitflow() and not (instr.is_subcall() and self.dontdis_retcall):
-                    loc_key_cst = get_loc(self.loc_db, func_name, cur_offset)
+                    if prebuilt_key is None:
+                        prebuilt_key = self.loc_db.add_location()
                     # 'if' branches alter execution flow when condition is not true
                     if instr.name == 'if':
-                        cur_block.bto.add(AsmConstraint(loc_key_cst, AsmConstraint.c_to))
+                        cur_block.bto.add(AsmConstraint(prebuilt_key, AsmConstraint.c_to))
                     else:
-                        cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
+                        cur_block.add_cst(prebuilt_key, AsmConstraint.c_next)
 
                 if self.dis_block_callback is not None:
                     self.dis_block_callback(mn=self.arch, attrib=self.attrib,
@@ -400,6 +433,7 @@ class dis_wasm(disasmEngine):
         for block in pending_blocks.done:
             blocks.add_block(block)
 
+        #TODO# Really useful ?
         blocks.apply_splitting(self.loc_db,
                                dis_block_callback=self.dis_block_callback,
                                mn=self.arch, attrib=self.attrib,
