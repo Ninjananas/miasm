@@ -8,21 +8,6 @@ import logging
 
 log_asmblock = logging.getLogger("asmblock")
 
-def get_loc(loc_db, func_name, offset):
-    raise Exception("DEPRECATED No more get_loc")
-    return loc_db.get_or_create_name_location(func_name + '_{}'.format(offset))
-
-def get_loc_strict(loc_db, func_name, offset):
-    return loc_db.get_name_location(func_name + '_{}'.format(offset))
-
-"""
-def get_end_loc(loc_db, label):
-    return loc_db.get_or_create_name_location(func_name + 'end_{}'.format(label))
-
-def get_end_loc(loc_db, label):
-    return loc_db.get_or_create_name_location(func_name + 'end_{}'.format(label))
-"""
-
 _prev_labels = {'loop': 0, 'if': 0, 'block': 0}
 def get_new_label(kind):
     global _prev_labels
@@ -54,12 +39,6 @@ class WasmStruct(object):
         self.end_key = key
         if self.kind == 'if' and self.after_else_key is None:
             self.after_else_key = self.end_key
-
-    def set_end_off(self, a, b):
-        raise Exception("DEPRECATED end_off")    
-
-    def set_else_off(self, a, b):
-        raise Exception("DEPRECATED else_off")
 
     def set_after_else_key(self, loc_db, key):
         if self.kind != 'if' or self.after_else_key is not None:
@@ -123,14 +102,11 @@ class PendingBasicBlocks(object):
         Please note that for the 'else' instruction, you have to give
         the loc key at the next instruction (else is at end of block)
         '''
+        key = None
         if isinstance(key_or_block, LocKey):
             key = key_or_block
         elif isinstance(key_or_block, AsmBlock):
             key = key_or_block.loc_key
-        elif key_or_block is None:
-            key = None
-        else:
-            raise Exception("DEPRECATED structure_inst_at with offset ?")
 
         try:
             kind = instr.name
@@ -218,40 +194,7 @@ class PendingBasicBlocks(object):
         for s in self._todo_structs:
             if s.label is None:
                 continue
-            self.loc_db.add_location_name(s.branch_key, s.label)
-
-            continue #TODO# replace correct labels
-            # Overwrite end key's name if label exists
-            prev_name, = self.loc_db.get_location_names(s.end_key)
-            try:
-                self.loc_db.add_location_name(s.end_key, "end " + s.label)
-                self.loc_db.remove_location_name(s.end_key, prev_name)
-            except TypeError: # struct has no label
-                pass
-
-            # Overwrite start key's name if label exists
-            prev_name, = self.loc_db.get_location_names(s.start_key)
-            try:
-                self.loc_db.add_location_name(s.start_key, "start " + s.label)
-                self.loc_db.remove_location_name(s.start_key, prev_name)
-            except TypeError: # struct has no label
-                pass
-
-            # Overwrite func end's name
-            if s.kind == 'func':
-                prev_name, = self.loc_db.get_location_names(s.end_key)
-                self.loc_db.add_location_name(s.end_key, "end " + s.func_name)
-                self.loc_db.remove_location_name(s.end_key, prev_name)
-
-            if s.kind == 'if':
-                if s.else_key != s.end_key:
-                    prev_name, = self.loc_db.get_location_names(s.else_key)
-                    try:
-                        self.loc_db.add_location_name(s.else_key, "case false " + s.label)
-                        self.loc_db.remove_location_name(s.else_key, prev_name)
-                    except TypeError: # struct has no label
-                        pass
-                
+            self.loc_db.add_location_name(s.branch_key, s.label)                
         self._todo_structs = []
 
 
@@ -414,13 +357,13 @@ class dis_wasm(disasmEngine):
                     else:
                         cur_block.add_cst(prebuilt_key, AsmConstraint.c_next)
 
-                if self.dis_block_callback is not None:
-                    self.dis_block_callback(mn=self.arch, attrib=self.attrib,
-                                            pool_bin=self.bin_stream, cur_bloc=cur_block,
-                                            offsets_to_dis=offsets_to_dis,
-                                            loc_db=self.loc_db,
-                                            # Deprecated API
-                                            symbol_pool=self.loc_db)
+                # if self.dis_block_callback is not None:
+                #     self.dis_block_callback(mn=self.arch, attrib=self.attrib,
+                #                             pool_bin=self.bin_stream, cur_bloc=cur_block,
+                #                             offsets_to_dis=offsets_to_dis,
+                #                             loc_db=self.loc_db,
+                #                             # Deprecated API
+                #                             symbol_pool=self.loc_db)
 
                 break
 
