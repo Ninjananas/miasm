@@ -4,16 +4,18 @@ from builtins import range
 
 import logging
 from pyparsing import *
+from collections import defaultdict
+from builtins import range
+import struct
+from math import ceil
+
 from miasm.expression.expression import *
 from miasm.core.cpu import *
-from collections import defaultdict
 from miasm.core.bin_stream import bin_stream
 import miasm.arch.wasm.regs as regs_module
 from miasm.arch.wasm.regs import *
 from miasm.core.asm_ast import AstInt, AstId, AstMem, AstOp
 from miasm.loader.wasm_utils import encode_LEB128
-from builtins import range
-import struct
 
 log = logging.getLogger("wasmdis")
 console_handler = logging.StreamHandler()
@@ -21,6 +23,7 @@ console_handler.setFormatter(logging.Formatter("%(levelname)-5s: %(message)s"))
 log.addHandler(console_handler)
 log.setLevel(logging.DEBUG)
 
+SPACE = Suppress(' ')
 LPAR = Suppress('(')
 RPAR = Suppress(')')
 RESULT = Suppress('result')
@@ -37,6 +40,12 @@ def valtype_str2expr(tokens):
     return AstId(valtypes_expr[i])
 
 blocktype_val = Group(LPAR + RESULT + literal_list(valtypes_str) + RPAR).setParseAction(valtype_str2expr)
+
+# # br_table arg list
+# def br_table_action(tokens):
+#     print(tokens)
+#     fds
+# br_table_arg_parser = Group(base_expr + ZeroOrMore(Group(SPACE + base_expr))).setParseAction(br_table_action)
 
 # Memargs
 basic_deref = lambda x: x[0][0]
@@ -164,6 +173,8 @@ class instruction_wasm(instruction):
     def getdstflow(self, loc_db):
         if self.name in ['br', 'br_if']:
             return self.args[0] # br idx
+        if self.name in ['br_table']:
+            return self.args # all br indexes
         if self.name in ['call']: # call_indirect ?
             return self.args[0] # func idx
         fds
@@ -301,10 +312,10 @@ def addop(name, fields, args=None, alias=False):
 class wasm_arg(m_arg):
     def asm_ast_to_expr(self, arg, loc_db):
         if isinstance(arg, AstInt):
-            if hasattr(self, '_int_len'): # arg is LEB_128-encoded
-                res = ExprInt(arg.value, self._int_len)
-                if hasattr(arg, '_additional_info'): #TODO# retirer ?
-                    res._additional_info = arg._additional_info
+            if hasattr(self, '_int_size'): # arg is LEB_128-encoded
+                res = ExprInt(arg.value, self._int_size)
+                #if hasattr(arg, '_additional_info'): #TODO# retirer ?
+                #    res._additional_info = arg._additional_info
                 return res
             fds
         if isinstance(arg, AstId):
@@ -361,6 +372,7 @@ def sct(i, cur_l):
         res >>= 7
         n -= 7
     return res_array
+
 
 class imm_7_noarg(imm_noarg):
     parser = base_expr
@@ -429,41 +441,216 @@ class imm_7_arg(imm_7_noarg, wasm_arg):
         self.value = LEB128_bytes[-1]
         return True
 
-class imm_7_arg_32(imm_7_arg):
-    _int_len = 32
+# class imm_7_arg_32(imm_7_arg):
+#     _int_len = 32
 
-class imm_7_arg_64(imm_7_arg):
-    _int_len = 64
+# class imm_7_arg_64(imm_7_arg):
+#     _int_len = 64
 
-class imm_7_arg_offset(imm_7_arg):
-    _int_len = 32
-    parser = offset_parser
+# class imm_7_arg_offset(imm_7_arg):
+#     _int_len = 32
+#     parser = offset_parser
 
-class imm_7_arg_align_1(imm_7_arg):
-    _int_len = 32
-    parser = align_parser(1)
+# class imm_7_arg_align_1(imm_7_arg):
+#     _int_len = 32
+#     parser = align_parser(1)
 
-class imm_7_arg_align_2(imm_7_arg):
-    _int_len = 32
-    parser = align_parser(2)
+# class imm_7_arg_align_2(imm_7_arg):
+#     _int_len = 32
+#     parser = align_parser(2)
 
-class imm_7_arg_align_4(imm_7_arg):
-    _int_len = 32
-    parser = align_parser(4)
+# class imm_7_arg_align_4(imm_7_arg):
+#     _int_len = 32
+#     parser = align_parser(4)
 
-class imm_7_arg_align_8(imm_7_arg):
-    _int_len = 32
-    parser = align_parser(8)
+# class imm_7_arg_align_8(imm_7_arg):
+#     _int_len = 32
+#     parser = align_parser(8)
 
-class imm_7_arg_br_table_tail(imm_7_arg_32):
+# class imm_7_arg_br_table_tail(imm_7_arg_32):
+#     '''
+#     like a classic imm_7_arg_32 but will check that
+#     the number of available branches is correct
+#     '''
+
+#     def decode(self, v):
+#         print("AAAAAAAAAAa")
+#         raise Exception()
+
+def vtobl(v, n_bytes):
     '''
-    like a classic imm_7_arg_32 but will check that
-    the number of available branches is correct
+    "v to byte_list": convert the v arg of decode method
+    to a list of bytes
     '''
+    res = []
+    for i in range(n_bytes):
+        res[0:0] = [v & 0xff]
+        v >>= 8
+    return res
+
+def decode_LEB128(bl):
+    '''
+    bl is the result returned by vtobl
+    '''
+    res = 0
+    i = 0
+    n = len(bl)
+    while True:
+        if i == n:
+            raise Exception("Malformed integer")
+        byt = bl[i]
+        # get value of the 7-bit sub-integer
+        # and add it correctly to the result
+        res += (byt & 0x7f) << (7*i)
+        i += 1
+
+        # test if it was the last one
+        if byt & 0x80 == 0:
+            break
+    return res, i
+        
+def get_LEB128_len(bs, max_len):
+    '''
+    gets the number of bytes a LEB128 is encoded on
+    does not rewind the bs pointer
+    '''
+    i = 0
+    while i < max_len:
+        i += 1
+        byte = ord(bs.readbs())
+        if byte & 0x80 == 0:
+            return i*8
+    return None
+
+class imm_arg_LEB128(imm_noarg, wasm_arg):
+    parser = base_expr
+
+    @classmethod
+    def flen(cls, mode, v, bs, offset_b):
+        ofs = bs.offset
+        # do not parse some bytes, start at the right spot
+        assert(offset_b % 8 == 0)
+        bs.setoffset(offset_b // 8)
+        max_l = ceil(cls._int_size / 7.)
+        res = get_LEB128_len(bs, max_l)
+        bs.setoffset(ofs)
+        return res
+
+    def encode(self):
+        if not isinstance(self.expr, ExprInt):
+            return False
+
+        # Value to encode in LEB_128
+        LEB128_bytes = sct(int(self.expr), self._int_size)
+
+        self.value  = 0
+        for b in LEB128_bytes[:-1]:
+            self.value += 0x80
+            self.value += b
+            self.value <<= 8
+        self.value += LEB128_bytes[-1]
+        return True
 
     def decode(self, v):
-        print("AAAAAAAAAAa")
-        raise Exception()
+        n_bytes = self.l // 8
+        bl = vtobl(v, n_bytes)
+        val, n = decode_LEB128(bl)
+        assert(n == n_bytes)
+        val = sxt(val, n*7, self._int_size) & mask_all(self._int_size)
+        self.expr = ExprInt(val, self._int_size)
+        return True
+
+class imm_arg_i32(imm_arg_LEB128):
+    _int_size = 32
+
+class imm_arg_i64(imm_arg_LEB128):
+    _int_size = 64
+
+class imm_arg_offset(imm_arg_i32):
+    parser = offset_parser
+
+class imm_arg_align_1(imm_arg_i32):
+    parser = align_parser(1)
+
+class imm_arg_align_2(imm_arg_i32):
+    parser = align_parser(2)
+
+class imm_arg_align_4(imm_arg_i32):
+    parser = align_parser(4)
+
+class imm_arg_align_8(imm_arg_i32):
+    parser = align_parser(8)
+
+class arg_br_table(wasm_arg):
+
+    @classmethod
+    def flen(cls, mode, v, bs, offset_b):
+        ofs = bs.offset
+
+        assert(offset_b % 8 == 0)
+        bs.setoffset(offset_b // 8)
+
+        # Find the length of the head integer and decode it
+        i = 0
+        max_l = 5
+        len_head = None
+        n_dest = 0
+        while i < max_l:
+            byte = ord(bs.readbs())
+            n_dest += (byte & 0x7f) << (7 * i)
+            i += 1
+            if byte & 0x80 == 0:
+                len_head = i*8
+                break
+
+        if len_head == None:
+            return None
+        
+        total_length = len_head
+        for i in range(n_dest +1):
+            total_length += get_LEB128_len(bs, 5)
+
+        bs.setoffset(ofs)
+        return total_length
+
+    def decode(self, v):
+        n_bytes = self.l // 8
+        bl = vtobl(v, n_bytes)
+        args = []
+        n_parsed = 0
+        while n_parsed < n_bytes:
+            val, n = decode_LEB128(bl[n_parsed:])
+            val = sxt(val, n*7, 32) & mask_all(32)
+            arg = imm_arg_i32()
+            arg.expr = ExprInt(val, 32)
+            args.append(arg)
+            n_parsed += n
+        # remove vec length
+        self.parent.args = args[1:]
+        return True
+
+    def encode(self):
+        self.value = 0
+        # encode size of the vec
+        LEB128_bytes = sct(len(self.parent.args)-1, 32)
+        for b in LEB128_bytes[:-1]:
+            self.value += 0x80
+            self.value += b
+            self.value <<= 8
+        self.value += LEB128_bytes[-1]
+
+        # add args
+        for arg in self.parent.args:
+            # make room for the upcoming arg
+            self.value <<= 8
+            LEB128_bytes = sct(int(arg.expr), 32)
+            for b in LEB128_bytes[:-1]:
+                self.value += 0x80
+                self.value += b
+                self.value <<= 8
+            self.value += LEB128_bytes[-1]
+        return True
+        
 
 VALTYPES = [
     (0x7F,'i32'),
@@ -639,27 +826,27 @@ single_byte_name = bs_name(l=8, name={
 addop('single_byte', [single_byte_name])
 
 # Uninpterpreted integers
-LEB128_byte = [bs('1'), bs(l=7, cls=(imm_7_noarg,))]
-LEB128_tail_32 = [bs('0'), bs(l=7, cls=(imm_7_arg_32,))]
-LEB128_tail_64 = [bs('0'), bs(l=7, cls=(imm_7_arg_64,))]
-LEB128_tail_32_br_table_tail = [bs('0'), bs(l=7, cls=(imm_7_arg_br_table_tail,))]
-LEB128_tail_offset = [bs('0'), bs(l=7, cls=(imm_7_arg_offset,))]
-LEB128_tail_align_1 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_1,))]
-LEB128_tail_align_2 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_2,))]
-LEB128_tail_align_4 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_4,))]
-LEB128_tail_align_8 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_8,))]
+# LEB128_byte = [bs('1'), bs(l=7, cls=(imm_7_noarg,))]
+# LEB128_tail_32 = [bs('0'), bs(l=7, cls=(imm_7_arg_32,))]
+# LEB128_tail_64 = [bs('0'), bs(l=7, cls=(imm_7_arg_64,))]
+# LEB128_tail_32_br_table_tail = [bs('0'), bs(l=7, cls=(imm_7_arg_br_table_tail,))]
+# LEB128_tail_offset = [bs('0'), bs(l=7, cls=(imm_7_arg_offset,))]
+# LEB128_tail_align_1 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_1,))]
+# LEB128_tail_align_2 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_2,))]
+# LEB128_tail_align_4 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_4,))]
+# LEB128_tail_align_8 = [bs('0'), bs(l=7, cls=(imm_7_arg_align_8,))]
 
-i32_alternatives = [LEB128_byte*i + LEB128_tail_32 for i in range(5)]
-i64_alternatives = [LEB128_byte*i + LEB128_tail_64 for i in range(10)]
-offset_alternatives = [LEB128_byte*i + LEB128_tail_offset for i in range(5)]
-align_alternatives_list = [
-    [LEB128_byte*i + LEB128_tail_align_1 for i in range(5)],
-    [LEB128_byte*i + LEB128_tail_align_2 for i in range(5)],
-    [LEB128_byte*i + LEB128_tail_align_4 for i in range(5)],
-    [LEB128_byte*i + LEB128_tail_align_8 for i in range(5)],
-]
+# i32_alternatives = [LEB128_byte*i + LEB128_tail_32 for i in range(5)]
+# i64_alternatives = [LEB128_byte*i + LEB128_tail_64 for i in range(10)]
+# offset_alternatives = [LEB128_byte*i + LEB128_tail_offset for i in range(5)]
+# align_alternatives_list = [
+#     [LEB128_byte*i + LEB128_tail_align_1 for i in range(5)],
+#     [LEB128_byte*i + LEB128_tail_align_2 for i in range(5)],
+#     [LEB128_byte*i + LEB128_tail_align_4 for i in range(5)],
+#     [LEB128_byte*i + LEB128_tail_align_8 for i in range(5)],
+# ]
 
-br_table_tail_alternatives = [LEB128_byte*i + LEB128_tail_32_br_table_tail for i in range(5)]
+# br_table_tail_alternatives = [LEB128_byte*i + LEB128_tail_32_br_table_tail for i in range(5)]
 
 '''
 Dirty solution... A br_table has at least 2 u32 args
@@ -667,41 +854,53 @@ Dirty solution... A br_table has at least 2 u32 args
 We generate all possibilities up to a vec of 8 possible branches (default excluded).
 Will fail to disassemble if there are more to 8 branches
 '''
-N_BRANCHES_BR_TABLE = 8
-br_table_args_alternatives = []
-#TODO# RETIRER TOUT ÇA
-for head in i32_alternatives:
-    for tail in br_table_tail_alternatives:
-        for i in range(N_BRANCHES_BR_TABLE + 1):
-            for _ in range(i):
-                pass
+# N_BRANCHES_BR_TABLE = 8
+# br_table_args_alternatives = []
+# #TODO# RETIRER TOUT ÇA
+# for head in i32_alternatives:
+#     for tail in br_table_tail_alternatives:
+#         for i in range(N_BRANCHES_BR_TABLE + 1):
+#             for _ in range(i):
+#                 pass
 
 
-memarg_alternatives_1 = []
-for off_alt in offset_alternatives:
-    for ali_alt in align_alternatives_list[0]:
-        memarg_alternatives_1.append(off_alt + ali_alt)
+# memarg_alternatives_1 = []
+# for off_alt in offset_alternatives:
+#     for ali_alt in align_alternatives_list[0]:
+#         memarg_alternatives_1.append(off_alt + ali_alt)
 
-memarg_alternatives_2 = []
-for off_alt in offset_alternatives:
-    for ali_alt in align_alternatives_list[1]:
-        memarg_alternatives_2.append(off_alt + ali_alt)
+# memarg_alternatives_2 = []
+# for off_alt in offset_alternatives:
+#     for ali_alt in align_alternatives_list[1]:
+#         memarg_alternatives_2.append(off_alt + ali_alt)
 
-memarg_alternatives_4 = []
-for off_alt in offset_alternatives:
-    for ali_alt in align_alternatives_list[2]:
-        memarg_alternatives_4.append(off_alt + ali_alt)
+# memarg_alternatives_4 = []
+# for off_alt in offset_alternatives:
+#     for ali_alt in align_alternatives_list[2]:
+#         memarg_alternatives_4.append(off_alt + ali_alt)
 
-memarg_alternatives_8 = []
-for off_alt in offset_alternatives:
-    for ali_alt in align_alternatives_list[3]:
-        memarg_alternatives_8.append(off_alt + ali_alt)
+# memarg_alternatives_8 = []
+# for off_alt in offset_alternatives:
+#     for ali_alt in align_alternatives_list[3]:
+#         memarg_alternatives_8.append(off_alt + ali_alt)
 
-for i32 in i32_alternatives:
-    addop('i32.const', [bs('01000001')] + i32)
 
-for i64 in i64_alternatives:
-    addop('i64.const', [bs('01000010')] + i64)
+
+memarg_1 = [bs(l=8888, cls=(imm_arg_offset,)), bs(l=8888, cls=(imm_arg_align_1,))]
+memarg_2 = [bs(l=8888, cls=(imm_arg_offset,)), bs(l=8888, cls=(imm_arg_align_2,))]
+memarg_4 = [bs(l=8888, cls=(imm_arg_offset,)), bs(l=8888, cls=(imm_arg_align_4,))]
+memarg_8 = [bs(l=8888, cls=(imm_arg_offset,)), bs(l=8888, cls=(imm_arg_align_8,))]
+
+#for i32 in i32_alternatives:
+#    addop('i32.const', [bs('01000001')] + i32)
+i32_bs = [bs(l=1, cls=(imm_arg_i32,))]
+addop('i32.const', [bs('01000001')] + i32_bs)
+
+
+#for i64 in i64_alternatives:
+#    addop('i64.const', [bs('01000010')] + i64)
+i64_bs = [bs(l=1, cls=(imm_arg_i64,))]
+addop('i64.const',[bs('01000010')] + i64_bs)
 
 # Floating numbers
 #TODO#
@@ -720,15 +919,22 @@ addop('loop',  [bs('00000011'), block_ret])
 addop('if',    [bs('00000100'), block_ret])
 
 # Branches
-for idx in i32_alternatives:
-    addop('br',    [bs('00001100')] + idx)
-    addop('br_if', [bs('00001101')] + idx)
+# for idx in i32_alternatives:
+#     addop('br',    [bs('00001100')] + idx)
+#     addop('br_if', [bs('00001101')] + idx)
     #TODO# addop('br_table', [bs('00001110'), ??????])
 
+addop('br',       [bs('00001100')] + i32_bs)
+addop('br_if',    [bs('00001101')] + i32_bs)
+addop('br_table', [bs('00001110'), bs(l=1, cls=(arg_br_table,))])
+
 # Calls
-for idx in i32_alternatives:
-    addop('call',          [bs('00010000')] + idx)
-    addop('call_indirect', [bs('00010001')] + idx + [bs('00000000')])
+# for idx in i32_alternatives:
+#     addop('call',          [bs('00010000')] + idx)
+#     addop('call_indirect', [bs('00010001')] + idx + [bs('00000000')])
+
+addop('call',          [bs('00010000')] + i32_bs)
+addop('call_indirect', [bs('00010001')] + i32_bs + [bs('00000000')])
 
 # Variable instructions
 var_instr_names = bs_name(l=8, name={
@@ -738,8 +944,9 @@ var_instr_names = bs_name(l=8, name={
     'global.get': 0x23,
     'global.set': 0x24,
 })
-for idx in i32_alternatives:
-    addop('var_instr', [var_instr_names] + idx)
+# for idx in i32_alternatives:
+#     addop('var_instr', [var_instr_names] + idx)
+addop('var_instr', [var_instr_names] + i32_bs)
 
 # Memory instructions
 #The 'align' field in most memory instructions has a default value
@@ -752,8 +959,9 @@ mem_instr_default_1 = bs_name(l=8, name={
     'i32.store8' : 0x3A,
     'i64.store8' : 0x3C,
 })
-for alt in memarg_alternatives_1:
-    addop('mem_instr_default_1', [mem_instr_default_1] + alt)
+# for alt in memarg_alternatives_1:
+#     addop('mem_instr_default_1', [mem_instr_default_1] + alt)
+addop('mem_instr_default_1', [mem_instr_default_1] + memarg_1)
 
 mem_instr_default_2 = bs_name(l=8, name={
     'i32.load16_s': 0x2E,
@@ -763,8 +971,9 @@ mem_instr_default_2 = bs_name(l=8, name={
     'i32.store16' : 0x3B,
     'i64.store16' : 0x3D,
 })
-for alt in memarg_alternatives_2:
-    addop('mem_instr_default_2', [mem_instr_default_2] + alt)
+# for alt in memarg_alternatives_2:
+#     addop('mem_instr_default_2', [mem_instr_default_2] + alt)
+addop('mem_instr_default_2', [mem_instr_default_2] + memarg_2)
 
 mem_instr_default_4 = bs_name(l=8, name={
     'i32.load'    : 0x28,
@@ -775,8 +984,9 @@ mem_instr_default_4 = bs_name(l=8, name={
     'f32.store'   : 0x38,
     'i64.store32' : 0x3E,
 })
-for alt in memarg_alternatives_4:
-    addop('mem_instr_default_4', [mem_instr_default_4] + alt)
+# for alt in memarg_alternatives_4:
+#     addop('mem_instr_default_4', [mem_instr_default_4] + alt)
+addop('mem_instr_default_4', [mem_instr_default_4] + memarg_4)
 
 mem_instr_default_8 = bs_name(l=8, name={
     'i64.load' : 0x29,
@@ -784,8 +994,9 @@ mem_instr_default_8 = bs_name(l=8, name={
     'i64.store': 0x37,
     'f64.store': 0x39,
 })
-for alt in memarg_alternatives_8:
-    addop('mem_instr_default_8', [mem_instr_default_8] + alt)
+# for alt in memarg_alternatives_8:
+#     addop('mem_instr_default_8', [mem_instr_default_8] + alt)
+addop('mem_instr_default_8', [mem_instr_default_8] + memarg_4)
 
 addop('memory.size', [bs('0011111100000000')])
 addop('memory.grow', [bs('0100000000000000')])

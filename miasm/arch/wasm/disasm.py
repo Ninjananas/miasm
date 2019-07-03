@@ -9,11 +9,12 @@ import logging
 log_asmblock = logging.getLogger("asmblock")
 
 _prev_labels = {'loop': 0, 'if': 0, 'block': 0}
+LABEL_PREFIXES = {'loop': 'L', 'if': 'I', 'block':'B'}
 def get_new_label(kind):
     global _prev_labels
     a = _prev_labels[kind]
     _prev_labels[kind] += 1
-    return "${}{}".format(kind, a)
+    return "${}{}".format(LABEL_PREFIXES[kind], a)
 
 class WasmStruct(object):
     '''
@@ -177,7 +178,19 @@ class PendingBasicBlocks(object):
             label = self._structs[-1-arg].label
             if label is not None:
                 block.lines[-1].args = [ExprId(label, 0)]
+                
 
+        elif name == 'br_table':
+            args =  [int(i) for i in block.lines[-1].getdstflow(self.loc_db)]
+            for i in range(len(args)):
+                arg = args[i]
+                if arg >= len(self._br_todo):
+                    raise Exception('Bad br')
+                self._br_todo[-1-arg].append(block)
+                label = self._structs[-1-arg].label
+                if label is not None:
+                    block.lines[-1].args[i] = ExprId(label, 0)
+                
         elif name == 'return':
             self._br_todo[0].append(block)
 

@@ -44,6 +44,10 @@ reg_tests_wasm = [
      "219901"),
     ("xxxx    i32.load8_s offset=0x3 align=0x2",
      "2C0302"),
+    ("xxxx    i32.load8_s offset=0xFF align=0x2",
+     "2CFF0102"),
+    ("xxxx    br_table   0x1 0x2 0x3 0x4 0x5 0x6 0x0",
+     "0E0601020304050600"),
 ]
 
 ts = time.time()
