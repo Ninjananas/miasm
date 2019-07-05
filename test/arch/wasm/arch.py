@@ -48,6 +48,10 @@ reg_tests_wasm = [
      "2CFF0102"),
     ("xxxx    br_table   0x1 0x2 0x3 0x4 0x5 0x6 0x0",
      "0E0601020304050600"),
+    ("xxxx    br_table   0x0",
+     "0E0000"),
+    ("xxxx    br_table   0xFF 0x1 0x2 0x3",
+     "0E03FF01010203"),
 ]
 
 ts = time.time()

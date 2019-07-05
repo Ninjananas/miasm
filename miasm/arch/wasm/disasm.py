@@ -74,7 +74,7 @@ class PendingBasicBlocks(object):
      - all these declaration must be made in order in the body of functions
 
     It updates basic blocks that end with:
-     - branches ('br', 'br_if') #TODO# br_table
+     - branches ('br', 'br_if', 'br_table')
      - 'if' pseudo instruction
      - 'else' pseudo instruction
     by finding their true dstflow and adding the corresponding
@@ -170,7 +170,7 @@ class PendingBasicBlocks(object):
             # 'else' is treated as 'br 0'
             self._br_todo[-1].append(block)
 
-        elif name in ['br', 'br_if']: # 'br_table' ?
+        elif name in ['br', 'br_if']:
             arg = int(block.lines[-1].getdstflow(self.loc_db))
             if arg >= len(self._br_todo):
                 raise Exception('Bad br')
@@ -217,7 +217,6 @@ class dis_wasm(disasmEngine):
     def __init__(self, wasm_cont=None, **kwargs):
         self.cont = wasm_cont
         super(dis_wasm, self).__init__(mn_wasm, self.attrib, None, **kwargs)
-        #self.dis_block_callback = cb_arm_disasm
 
     def dis_multiblock(self):
         raise NotImplementedError("Use dis_func_body to disassemble a function body")
@@ -296,12 +295,6 @@ class dis_wasm(disasmEngine):
 
             ## Instruction loop ##
             while not pending_blocks.is_done:
-
-                # Check split_dis
-                # if lines_cpt > 0 and offset in self.split_dis:
-                #     loc_key_cst = get_loc(self.loc_db, func_name, cur_offset)
-                #     cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
-                #     break
             
                 lines_cpt += 1
                 # Check line watchdog
@@ -315,17 +308,6 @@ class dis_wasm(disasmEngine):
                 if instr is None:
                     log_asmblock.warning("cannot disasm at %X", int(cur_offset))
                     raise Exception("Disasm error: {}".format(error))
-                    ''' ORIGINAL BEHAVIOUR~
-                    if not cur_block.lines:
-                        job_done.add(offset)
-                        # Block is empty -> bad block
-                        cur_block = AsmBlockBad(loc_key, errno=error)
-                    else:
-                        # Block is not empty, stop the desassembly pass and add a
-                        # constraint to the next block
-                        loc_key_cst = self.loc_db.get_or_create_offset_location(off_i)
-                        cur_block.add_cst(loc_key_cst, AsmConstraint.c_next)
-                    '''
 
                 log_asmblock.debug("dis at %X in function #%X", int(cur_offset), func_idx)
                 log_asmblock.debug(instr)
@@ -370,14 +352,6 @@ class dis_wasm(disasmEngine):
                     else:
                         cur_block.add_cst(prebuilt_key, AsmConstraint.c_next)
 
-                # if self.dis_block_callback is not None:
-                #     self.dis_block_callback(mn=self.arch, attrib=self.attrib,
-                #                             pool_bin=self.bin_stream, cur_bloc=cur_block,
-                #                             offsets_to_dis=offsets_to_dis,
-                #                             loc_db=self.loc_db,
-                #                             # Deprecated API
-                #                             symbol_pool=self.loc_db)
-
                 break
 
             # Register current block
@@ -388,11 +362,5 @@ class dis_wasm(disasmEngine):
         blocks = AsmCFG(self.loc_db)
         for block in pending_blocks.done:
             blocks.add_block(block)
-
-        #TODO# Really useful ?
-        blocks.apply_splitting(self.loc_db,
-                               dis_block_callback=self.dis_block_callback,
-                               mn=self.arch, attrib=self.attrib,
-                               pool_bin=self.bin_stream)
 
         return blocks

@@ -69,6 +69,7 @@ def push(ir, valtype, val):
     aff = ExprAssign(ExprMem(ir.sp, size), ExprInt(val, size))
     return [aff, ExprAssign(ir.sp, ExprOp('+', ir.sp, ExprInt(size, ir.sp.size)))]
 
+#TODO# get the popped value
 def pop(ir, valtype):
     '''
     Pops a value from the operand stack
@@ -76,6 +77,7 @@ def pop(ir, valtype):
     size = VT_SIZE[valtype]
     
     return [ExprAssign(ir.sp, ExprOp('-', ir.sp, ExprInt(size, ir.sp.size)))]
+
 
 mnemo_func = {
     
