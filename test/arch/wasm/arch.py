@@ -24,6 +24,8 @@ reg_tests_wasm = [
      "72"),
     ("xxxx    i32.const  0xF5",
      "41f501"),
+    ("xxxx    i32.const  0x0",
+     "4100"),
     ("xxxx    i32.const  0xFFFFFFFF",
      "417f"),
     ("xxxx    i64.const  0xFFFFFFFF",

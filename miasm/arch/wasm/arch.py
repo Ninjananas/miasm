@@ -211,6 +211,7 @@ class mn_wasm(cls_mn):
     instruction = instruction_wasm
     # max_instruction_len = Nothing (instructions may be very long...)
 
+
     @classmethod
     def getpc(cls, attrib):
         return PC
@@ -390,6 +391,7 @@ class imm_arg_LEB128(imm_noarg, wasm_arg):
             self.value += b
             self.value <<= 8
         self.value += LEB128_bytes[-1]
+        self.l = len(LEB128_bytes)*8
         return True
 
     def decode(self, v):
@@ -472,6 +474,7 @@ class arg_br_table(wasm_arg):
 
     def encode(self):
         self.value = 0
+        self.l = 0
         # encode size of the vec
         LEB128_bytes = sct(len(self.parent.args)-1, 32)
         for b in LEB128_bytes[:-1]:
@@ -479,6 +482,7 @@ class arg_br_table(wasm_arg):
             self.value += b
             self.value <<= 8
         self.value += LEB128_bytes[-1]
+        self.l += len(LEB128_bytes) * 8
 
         # add args
         for arg in self.parent.args:
@@ -490,6 +494,7 @@ class arg_br_table(wasm_arg):
                 self.value += b
                 self.value <<= 8
             self.value += LEB128_bytes[-1]
+            self.l += len(LEB128_bytes) * 8
         return True
         
 
