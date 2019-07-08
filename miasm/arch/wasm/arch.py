@@ -475,20 +475,12 @@ class arg_br_table(wasm_arg):
     def encode(self):
         self.value = 0
         self.l = 0
-        # encode size of the vec
-        LEB128_bytes = sct(len(self.parent.args)-1, 32)
-        for b in LEB128_bytes[:-1]:
-            self.value += 0x80
-            self.value += b
-            self.value <<= 8
-        self.value += LEB128_bytes[-1]
-        self.l += len(LEB128_bytes) * 8
 
-        # add args
-        for arg in self.parent.args:
+        # Encode number of args (minus default) + args
+        for i in [len(self.parent.args)-1] + [int(arg.expr) for arg in self.parent.args]:
             # make room for the upcoming arg
             self.value <<= 8
-            LEB128_bytes = sct(int(arg.expr), 32)
+            LEB128_bytes = sct(i, 32)
             for b in LEB128_bytes[:-1]:
                 self.value += 0x80
                 self.value += b
