@@ -1,56 +1,20 @@
 #-*- coding:utf-8 -*-
 
 from miasm.expression.expression import *
-#from miasm.arch.toy.regs import *
+from miasm.arch.wasm.regs import *
 from miasm.arch.wasm.arch import mn_wasm
 from miasm.ir.ir import IntermediateRepresentation
 
-'''
-def sub(ir, instr, d, s, t):
-    e = []
-    e.append(ExprAssign(d, s-t))
+
+def nop(ir, instr):
+    return [],[]
+
+def const(ir, instr, arg):
+    e = push(ir, arg, instr.name.split('.')[0])
     return e, []
 
-def add(ir, instr, d, s, t):
-    e = []
-    e.append(ExprAssign(d, s+t))
-    return e, []
-
-def jz(ir, instr, reg, addr):
-    e = []
-    loc_next_expr = ExprLoc(ir.get_next_loc_key(instr), 8)
-    e.append(ExprAssign(ir.IRDst, ExprCond(ExprOp(TOK_EQUAL, reg, ExprInt(0, reg.size)), addr, loc_next_expr)))
-    return e, []
-
-def halt(ir, instr):
-    return [ExprAssign(ir.IRDst, ExprId('END', 8))], []
-
-mnemo_func = {
-    'add' : add,
-    'sub' : sub,
-    'jz'  : jz,
-    'halt': halt,
-}
-
-class ir_toy(IntermediateRepresentation):
-
-    def __init__(self, loc_db=None):
-        IntermediateRepresentation.__init__(self, mn_toy, None, loc_db)
-        self.pc = PC
-        self.sp = SP
-        self.IRDst = ExprId('IRDst', 8)
-        self.addrsize = 8
-
-    def get_ir(self, instr):
-        args = instr.args
-        instr_ir, extra_ir = mnemo_func[instr.name](self, instr, *args)
-
-        return instr_ir, extra_ir
-'''
-
-PUSH_STACK = {
-    'i32': ExprAff(ExprMem(SP, )),
-}
+def drop(ir, instr):
+    return [pop(ir)[0]], []
 
 VT_SIZE = {
     'i32': 32,
@@ -59,38 +23,73 @@ VT_SIZE = {
     'i64': 64,
 }
 
-#TODO# push/pop : flottants ?
-def push(ir, valtype, val):
+VT_REPR = {
+    'i32': 0,
+    'i64': 1,
+    'f32': 2,
+    'i64': 3,
+}
+
+def push(ir, val, vt):
     '''
-    Push a value on the operand stack
+    Push a value @val of type @vt on the
+    operand stack
     Returns a list of ExprAssign
     '''
-    size = VT_SIZE[valtype]
-    aff = ExprAssign(ExprMem(ir.sp, size), ExprInt(val, size))
-    return [aff, ExprAssign(ir.sp, ExprOp('+', ir.sp, ExprInt(size, ir.sp.size)))]
+    aff = ExprAssign(ExprMem(ir.sp, val.size), val)
+    aff_t = ExprAssign(ExprMem(ExprOp('+', ir.sp, ExprInt(val.size, ir.sp.size)), 8), ExprInt(VT_REPR[vt], 8))
+    return [aff, aff_t, ExprAssign(ir.sp, ExprOp('+', ir.sp, ExprInt(val.size + 8, ir.sp.size)))]
 
-#TODO# get the popped value
-def pop(ir, valtype):
+def pop(ir, vt=None):
     '''
-    Pops a value from the operand stack
+    Pops a value from the operand stack.
+    Returns a tuple (pp, val) where:
+    - pp is an ExprAssign to make to move the sp
+    - val is an ExprMem to get the poped value
+    Both must be, in the end, in the same AssignBlock
+    Note that if vt is None, val is None too
     '''
-    size = VT_SIZE[valtype]
-    
-    return [ExprAssign(ir.sp, ExprOp('-', ir.sp, ExprInt(size, ir.sp.size)))]
+    vt_stack = ExprMem(ExprOp('+', ir.sp, ExprOp('-', ExprInt(8, ir.sp.size))), 8)
+    if vt is None:
+        size_to_pop = ExprCond(ExprOp('parity', vt_stack),
+                               ExprInt(40, ir.sp.size),
+                               ExprInt(72, ir.sp.size))
+    else:
+        is_64 = VT_REPR[vt] & 1
+        size_to_pop = ExprInt(32 * (is_64 + 1))
+    pp = ExprAssign(ir.sp, ExprOp('+', ir.sp, ExprOp('-', size_to_pop)))
 
+    if vt is None:
+        return pp, None
+
+    if is_64 == 0:
+        off, sz = 40, 32
+    else:
+        off, sz = 72, 64
+    val = ExprMem(ExprOp('+', ir.sp, ExprOp('-', ExprInt(off, ir.sp.size))), sz)
+    return pp, val
 
 mnemo_func = {
-    
+    'i32.const' : const,
+    'i64.const' : const,
+    'f32.const' : const,
+    'f64.const' : const,
+    'nop'       : nop,
+    'block'     : nop,
+    'loop'      : nop,
+    'else'      : nop,
+    'end'       : nop,
+    'drop'      : drop,
 }
 
 class ir_wasm(IntermediateRepresentation):
 
     def __init__(self, loc_db=None):
         IntermediateRepresentation.__init__(self, mn_wasm, None, loc_db)
-        #self.pc = PC
-        #self.sp = SP
-        self.IRDst = ExprId('IRDst', 64)
-        #self.addrsize = 64
+        self.pc = PC
+        self.sp = SP
+        self.IRDst = ExprId('IRDst', 32)
+        self.addrsize = 32
 
     def get_ir(self, instr):
         args = instr.args
@@ -98,5 +97,4 @@ class ir_wasm(IntermediateRepresentation):
         return instr_ir, extra_ir
 
     def get_next_loc_key(self, instr): #TODO#
-        loc_key = self.loc_db.get_or_create_offset_location(instr.offset + instr.l)
-        return loc_key
+        fds
