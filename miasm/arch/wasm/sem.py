@@ -109,7 +109,8 @@ def pop(ir, vt=None, n=1):
     size_to_pop = ExprInt(size_per_item * n, ir.sp.size)
 
     is_64 = VT_REPR[vt] & 1 == 1
-    ofs_vals = [i2expr(1 + (i*size_per_item), ir.sp.size) for i in range(n)]
+    # get poped values ordered with the one the furthest from the SP first
+    ofs_vals = [i2expr(1 + (i*size_per_item), ir.sp.size) for i in range(n)][::-1]
     return i2expr(size_per_item * n, ir.sp.size), ofs_vals
 
 ##### Mnemonics functions #####
@@ -129,9 +130,9 @@ def drop(ir, instr):
 ## Operations on integers
 
 IUNOPS = {
-    'clz': lambda vals: fds,
-    'ctz': lambda vals: fds,
-    'popcnt': lambda vals: fds,
+    'clz'   : lambda vals: ExprOp('cntleadzeros', vals[0]),
+    'ctz'   : lambda vals: ExprOp('cnttrailzeros', vals[0]),
+    'popcnt': lambda vals: ExprOp('cntones', vals[0]),
 }
 
 def iunop(ir, instr):
@@ -150,21 +151,21 @@ def iunop(ir, instr):
 
 
 IBINOPS = {
-    'add': lambda vals: ExprOp('+', vals[0], vals[1]),
-    'sub': lambda vals: ExprOp('+', vals[0], ExprOp('-', vals[1])),
-    'mul': lambda vals: ExprOp('*', vals[0], vals[1]),
-    'and': lambda vals: ExprOp('&', vals[0], vals[1]),
-    'or': lambda vals: ExprOp('|', vals[0], vals[1]),
-    'xor': lambda vals: ExprOp('^', vals[0], vals[1]),
-    'shl': lambda vals: fds,
-    'rotl': lambda vals: fds,
-    'rotr': lambda vals: fds,
-    'div_u': lambda vals: fds,
-    'rem_u': lambda vals: fds,
-    'shr_u': lambda vals: fds,
-    'div_s': lambda vals: fds,
-    'rem_s': lambda vals: fds,
-    'shr_s': lambda vals: fds,
+    'add'  : lambda vals: ExprOp('+', vals[0], vals[1]),
+    'sub'  : lambda vals: ExprOp('+', vals[0], ExprOp('-', vals[1])),
+    'mul'  : lambda vals: ExprOp('*', vals[0], vals[1]),
+    'and'  : lambda vals: ExprOp('&', vals[0], vals[1]),
+    'or'   : lambda vals: ExprOp('|', vals[0], vals[1]),
+    'xor'  : lambda vals: ExprOp('^', vals[0], vals[1]),
+    'shl'  : lambda vals: ExprOp('<<', vals[0], vals[1]),
+    'rotl' : lambda vals: ExprOp('<<<', vals[0], vals[1]),
+    'rotr' : lambda vals: ExprOp('>>>', vals[0], vals[1]),
+    'div_u': lambda vals: ExprOp('udiv', vals[0], vals[1]),
+    'rem_u': lambda vals: ExprOp('umod', vals[0], vals[1]),
+    'shr_u': lambda vals: ExprOp('>>', vals[0], vals[1]),
+    'div_s': lambda vals: ExprOp('sdiv', vals[0], vals[1]),
+    'rem_s': lambda vals: ExprOp('smod', vals[0], vals[1]),
+    'shr_s': lambda vals: ExprOp('a>>', vals[0], vals[1]),
 }
 
 def ibinop(ir, instr):
@@ -185,7 +186,7 @@ def ibinop(ir, instr):
 
 
 ITESTOPS = {
-    'eqz': lambda vals: ExprCond(vals[0], ExprInt(0xaa, 32), ExprInt(0xbb, 32)),
+    'eqz': lambda vals: ExprCond(vals[0], ExprInt(0x0, 32), ExprInt(0x1, 32)),
 }
 
 def itestop(ir, instr):
@@ -204,16 +205,17 @@ def itestop(ir, instr):
     return push_res, []
 
 IRELOPS = {
-    'eq': lambda: fds,
-    'ne': lambda: fds,
-    'lt_s': lambda: fds,
-    'lt_u': lambda: fds,
-    'gt_s': lambda: fds,
-    'gt_u': lambda: fds,
-    'le_s': lambda: fds,
-    'le_u': lambda: fds,
-    'ge_s': lambda: fds,
-    'ge_u': lambda: fds,
+    'eq'  : lambda vals: ExprOp('==', vals[0], vals[1]).zeroExtend(32),
+    # 'FLAG_EQ' operator acts like a 'not'
+    'ne'  : lambda vals: ExprOp('FLAG_EQ', ExprOp('==', vals[0], vals[1])).zeroExtend(32),
+    'lt_s': lambda vals: ExprOp('<s', vals[0], vals[1]).zeroExtend(32),
+    'lt_u': lambda vals: ExprOp('<u', vals[0], vals[1]).zeroExtend(32),
+    'gt_s': lambda vals: ExprOp('FLAG_EQ', ExprOp('<=s', vals[0], vals[1])).zeroExtend(32),
+    'gt_u': lambda vals: ExprOp('FLAG_EQ', ExprOp('<=u', vals[0], vals[1])).zeroExtend(32),
+    'le_s': lambda vals: ExprOp('<=s', vals[0], vals[1]).zeroExtend(32),
+    'le_u': lambda vals: ExprOp('<=u', vals[0], vals[1]).zeroExtend(32),
+    'ge_s': lambda vals: ExprOp('FLAG_EQ', ExprOp('<s', vals[0], vals[1])).zeroExtend(32),
+    'ge_u': lambda vals: ExprOp('FLAG_EQ', ExprOp('<u', vals[0], vals[1])).zeroExtend(32),
 }
 
 def irelop(ir, instr):
@@ -225,7 +227,7 @@ def irelop(ir, instr):
     vt, op = instr.name.split('.')
     # get operands
     pp, ofs_vals = pop(ir, vt, 2)
-    res = ITESTOPS[op]([get_at(ir, ofs, vt) for ofs in ofs_vals])
+    res = IRELOPS[op]([get_at(ir, ofs, vt) for ofs in ofs_vals])
     # Push result of operation on the previous value
     push_res = push(ir, res, 'i32', pp)
 
@@ -246,6 +248,12 @@ mnemo_func = {
     'else'      : nop,
     'end'       : nop,
     'drop'      : drop,
+    'i32.clz'   : iunop,
+    'i32.ctz'   : iunop,
+    'i32.popcnt': iunop,
+    'i64.clz'   : iunop,
+    'i64.ctz'   : iunop,
+    'i64.popcnt': iunop,
     'i32.add'   : ibinop,
     'i32.sub'   : ibinop,
     'i32.mul'   : ibinop,
@@ -278,6 +286,26 @@ mnemo_func = {
     'i64.shr_s' : ibinop,
     'i32.eqz'   : itestop,
     'i64.eqz'   : itestop,
+    'i32.eq'    : irelop,
+    'i32.ne'    : irelop,
+    'i32.lt_s'  : irelop,
+    'i32.lt_u'  : irelop,
+    'i32.gt_s'  : irelop,
+    'i32.gt_u'  : irelop,
+    'i32.le_s'  : irelop,
+    'i32.le_u'  : irelop,
+    'i32.ge_s'  : irelop,
+    'i32.ge_u'  : irelop,
+    'i64.eq'    : irelop,
+    'i64.ne'    : irelop,
+    'i64.lt_s'  : irelop,
+    'i64.lt_u'  : irelop,
+    'i64.gt_s'  : irelop,
+    'i64.gt_u'  : irelop,
+    'i64.le_s'  : irelop,
+    'i64.le_u'  : irelop,
+    'i64.ge_s'  : irelop,
+    'i64.ge_u'  : irelop,
 }
 
 class ir_wasm(IntermediateRepresentation):
