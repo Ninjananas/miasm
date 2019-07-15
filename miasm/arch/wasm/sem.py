@@ -234,6 +234,26 @@ def irelop(ir, instr):
     return push_res, []
 
 
+I2I = {
+    'wrap_i64': lambda vals: ExprSlice(vals[0], 0, 32),
+    'extend_i32_u': lambda vals: vals[0].zeroExtend(64),
+    'extend_i32_s': lambda vals: vals[0].signExtend(64),
+}
+
+def i2i(ir, instr):
+    '''
+    Conversion of integers (i32 <-> i64)
+    '''
+    vt_dst, op = instr.name.split('.')
+    if vt_dst == 'i32':
+        vt_src = 'i64'
+    elif vt_dst == 'i64':
+        vt_src = 'i32'
+    pp, ofs_vals = pop(ir, vt_src, 1)
+    res = I2I[op]([get_at(ir, ofs, vt_src) for ofs in ofs_vals])
+
+    push_res = push(ir, res, vt_dst, pp)
+    return push_res, []
 
 ##### Mnemonics indexing #####
 
@@ -306,6 +326,9 @@ mnemo_func = {
     'i64.le_u'  : irelop,
     'i64.ge_s'  : irelop,
     'i64.ge_u'  : irelop,
+    'i32.wrap_i64'  : i2i,
+    'i64.extend_i32_u': i2i,
+    'i64.extend_i32_s': i2i,
 }
 
 class ir_wasm(IntermediateRepresentation):

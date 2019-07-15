@@ -129,5 +129,12 @@ if __name__ == '__main__':
         'drop', # No value on stack here
         'i64.const -0x2',
         'i64.popcnt',
+        'drop',
+        'i64.const -0x1',
+        'i32.wrap_i64',
+        'i64.extend_i32_s',
+        'i32.wrap_i64',
+        'i64.extend_i32_u',
+        'drop', # No value on stack here
     ]))
 
