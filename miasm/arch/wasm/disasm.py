@@ -2,7 +2,7 @@ from miasm.core.asmblock import disasmEngine, AsmBlock
 from miasm.core.utils import Disasm_Exception
 from miasm.arch.wasm.arch import mn_wasm
 from miasm.core.asmblock import AsmConstraint, AsmCFG, AsmBlockBad
-from miasm.expression.expression import ExprId, LocKey
+from miasm.expression.expression import ExprId, LocKey, ExprLoc
 import copy
 import logging
 
@@ -22,7 +22,8 @@ class WasmStruct(object):
     The possible kinds of structures are:
     'func', 'loop', 'block', 'if'
     '''
-    __slots__ = ['kind', 'start_key', 'end_key', 'after_else_key', 'label']
+    __slots__ = ['kind', 'start_key', 'end_key',
+                 'after_else_key', 'label']
 
     def __init__(self, loc_db, kind, start_key):
         self.kind = kind
@@ -153,7 +154,7 @@ class PendingBasicBlocks(object):
             else:
                 label = self._structs[-1].label
             if label is not None:
-                instr.args = [ExprId(label, 0)] + instr.args
+                instr.args = [label] + instr.args
 
         # Add done structs for update
         if pop_struct is not None:
@@ -207,7 +208,7 @@ class PendingBasicBlocks(object):
         for s in self._todo_structs:
             if s.label is None:
                 continue
-            self.loc_db.add_location_name(s.branch_key, s.label)                
+            self.loc_db.add_location_name(s.branch_key, s.label)
         self._todo_structs = []
 
 
@@ -362,5 +363,14 @@ class dis_wasm(disasmEngine):
         blocks = AsmCFG(self.loc_db)
         for block in pending_blocks.done:
             blocks.add_block(block)
+
+        for block in blocks.blocks:
+            for instr in block.lines:
+                for i in range(len(instr.args)):
+                    if isinstance(instr.args[i], str):
+                        lk = self.loc_db.get_name_location(instr.args[i])
+                        if lk is None:
+                            raise Exception("Not supposed to happen")
+                        instr.args[i] = ExprLoc(lk, 32)
 
         return blocks

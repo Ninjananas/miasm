@@ -127,7 +127,9 @@ class instruction_wasm(instruction):
             elif expr.name.startswith('$'): # structure label
                 o = expr.name
             else:
-                fds            
+                fds
+        elif isinstance(expr, ExprLoc):
+            o, = loc_db.get_location_names(expr.loc_key)
         else:
             fds
         return o

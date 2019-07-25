@@ -12,7 +12,7 @@ class Machine(object):
 
     __available = ["arml", "armb", "armtl", "armtb", "sh4", "x86_16", "x86_32",
                    "x86_64", "msp430", "mips32b", "mips32l",
-                   "aarch64l", "aarch64b", "ppc32b", "mepl", "mepb", "wasm", "toy"]
+                   "aarch64l", "aarch64b", "ppc32b", "mepl", "mepb", "wasm"]
 
 
     def __init__(self, machine_name):
@@ -210,7 +210,7 @@ class Machine(object):
             #     pass
             mn = arch.mn_wasm
             #from miasm.arch.wasm.ira import ir_a_wasm as ira
-            #from miasm.arch.wasm.sem import ir_wasm as ir
+            from miasm.arch.wasm.sem import ir_wasm as ir
         else:
             raise ValueError('Unknown machine: %s' % machine_name)
 

@@ -127,6 +127,27 @@ def drop(ir, instr):
     return [add_sp(ir, a)], []
 
 
+## Structure instructions (block, loop, end, calls...
+
+def s_block(ir, instr, *args):
+    fds
+
+def s_loop(ir, instr, *args):
+    fds
+
+def s_call(ir, instr, *args):
+    fds
+    
+def s_if(ir, instr, *args):
+    print(dir(instr))
+    fds
+
+def s_else(ir, instr, *args):
+    fds
+
+def s_end(ir, instr, *args):
+    fds
+
 ## Operations on integers
 
 IUNOPS = {
@@ -257,86 +278,111 @@ def i2i(ir, instr):
 
 ##### Mnemonics indexing #####
 
+''' #TODO#
+if / loop / block / else / br...
+calls
+memories
+branches
+select
+floats
+locals
+globals
+'''
+
 mnemo_func = {
-    'i32.const' : const,
-    'i64.const' : const,
-    'f32.const' : const,
-    'f64.const' : const,
-    'nop'       : nop,
-    'block'     : nop,
-    'loop'      : nop,
-    'else'      : nop,
-    'end'       : nop,
-    'drop'      : drop,
-    'i32.clz'   : iunop,
-    'i32.ctz'   : iunop,
-    'i32.popcnt': iunop,
-    'i64.clz'   : iunop,
-    'i64.ctz'   : iunop,
-    'i64.popcnt': iunop,
-    'i32.add'   : ibinop,
-    'i32.sub'   : ibinop,
-    'i32.mul'   : ibinop,
-    'i32.and'   : ibinop,
-    'i32.or'    : ibinop,
-    'i32.xor'   : ibinop,
-    'i32.shl'   : ibinop,
-    'i32.rotl'  : ibinop,
-    'i32.rotr'  : ibinop,
-    'i32.div_u' : ibinop,
-    'i32.rem_u' : ibinop,
-    'i32.shr_u' : ibinop,
-    'i32.div_s' : ibinop,
-    'i32.rem_s' : ibinop,
-    'i32.shr_s' : ibinop,
-    'i64.add'   : ibinop,
-    'i64.sub'   : ibinop,
-    'i64.mul'   : ibinop,
-    'i64.and'   : ibinop,
-    'i64.or'    : ibinop,
-    'i64.xor'   : ibinop,
-    'i64.shl'   : ibinop,
-    'i64.rotl'  : ibinop,
-    'i64.rotr'  : ibinop,
-    'i64.div_u' : ibinop,
-    'i64.rem_u' : ibinop,
-    'i64.shr_u' : ibinop,
-    'i64.div_s' : ibinop,
-    'i64.rem_s' : ibinop,
-    'i64.shr_s' : ibinop,
-    'i32.eqz'   : itestop,
-    'i64.eqz'   : itestop,
-    'i32.eq'    : irelop,
-    'i32.ne'    : irelop,
-    'i32.lt_s'  : irelop,
-    'i32.lt_u'  : irelop,
-    'i32.gt_s'  : irelop,
-    'i32.gt_u'  : irelop,
-    'i32.le_s'  : irelop,
-    'i32.le_u'  : irelop,
-    'i32.ge_s'  : irelop,
-    'i32.ge_u'  : irelop,
-    'i64.eq'    : irelop,
-    'i64.ne'    : irelop,
-    'i64.lt_s'  : irelop,
-    'i64.lt_u'  : irelop,
-    'i64.gt_s'  : irelop,
-    'i64.gt_u'  : irelop,
-    'i64.le_s'  : irelop,
-    'i64.le_u'  : irelop,
-    'i64.ge_s'  : irelop,
-    'i64.ge_u'  : irelop,
-    'i32.wrap_i64'  : i2i,
-    'i64.extend_i32_u': i2i,
-    'i64.extend_i32_s': i2i,
+    'i32.const'        : const,
+    'i64.const'        : const,
+    'f32.const'        : const,
+    'f64.const'        : const,
+    'nop'              : nop,
+    'block'            : s_block,
+    'loop'             : s_loop,
+    'else'             : s_else,
+    'end'              : s_end,
+    'if'               : s_if,
+    'drop'             : drop,
+    'i32.clz'          : iunop,
+    'i32.ctz'          : iunop,
+    'i32.popcnt'       : iunop,
+    'i64.clz'          : iunop,
+    'i64.ctz'          : iunop,
+    'i64.popcnt'       : iunop,
+    'i32.add'          : ibinop,
+    'i32.sub'          : ibinop,
+    'i32.mul'          : ibinop,
+    'i32.and'          : ibinop,
+    'i32.or'           : ibinop,
+    'i32.xor'          : ibinop,
+    'i32.shl'          : ibinop,
+    'i32.rotl'         : ibinop,
+    'i32.rotr'         : ibinop,
+    'i32.div_u'        : ibinop,
+    'i32.rem_u'        : ibinop,
+    'i32.shr_u'        : ibinop,
+    'i32.div_s'        : ibinop,
+    'i32.rem_s'        : ibinop,
+    'i32.shr_s'        : ibinop,
+    'i64.add'          : ibinop,
+    'i64.sub'          : ibinop,
+    'i64.mul'          : ibinop,
+    'i64.and'          : ibinop,
+    'i64.or'           : ibinop,
+    'i64.xor'          : ibinop,
+    'i64.shl'          : ibinop,
+    'i64.rotl'         : ibinop,
+    'i64.rotr'         : ibinop,
+    'i64.div_u'        : ibinop,
+    'i64.rem_u'        : ibinop,
+    'i64.shr_u'        : ibinop,
+    'i64.div_s'        : ibinop,
+    'i64.rem_s'        : ibinop,
+    'i64.shr_s'        : ibinop,
+    'i32.eqz'          : itestop,
+    'i64.eqz'          : itestop,
+    'i32.eq'           : irelop,
+    'i32.ne'           : irelop,
+    'i32.lt_s'         : irelop,
+    'i32.lt_u'         : irelop,
+    'i32.gt_s'         : irelop,
+    'i32.gt_u'         : irelop,
+    'i32.le_s'         : irelop,
+    'i32.le_u'         : irelop,
+    'i32.ge_s'         : irelop,
+    'i32.ge_u'         : irelop,
+    'i64.eq'           : irelop,
+    'i64.ne'           : irelop,
+    'i64.lt_s'         : irelop,
+    'i64.lt_u'         : irelop,
+    'i64.gt_s'         : irelop,
+    'i64.gt_u'         : irelop,
+    'i64.le_s'         : irelop,
+    'i64.le_u'         : irelop,
+    'i64.ge_s'         : irelop,
+    'i64.ge_u'         : irelop,
+    'i32.wrap_i64'     : i2i,
+    'i64.extend_i32_u' : i2i,
+    'i64.extend_i32_s' : i2i,
 }
 
 class ir_wasm(IntermediateRepresentation):
 
-    def __init__(self, loc_db=None):
+    def __init__(self, loc_db=None, cont=None):
         IntermediateRepresentation.__init__(self, mn_wasm, None, loc_db)
+        if cont is None:
+            raise Exception("Container object is needed")
+        self.func_info = []
+        for f in cont.executable.functions:
+            locs = []
+            if not f.is_imported:
+                locs = f.code.locs
+            self.func_info.append({
+                'params': f.signature.params,
+                'results': f.signature.results,
+                'locals': locs
+            })
         self.pc = PC
         self.sp = SP
+        self.bp = BP
         self.IRDst = ExprId('IRDst', 32)
         self.addrsize = 32
 
