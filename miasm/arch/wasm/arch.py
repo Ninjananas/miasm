@@ -1,4 +1,4 @@
-#-*- coding:utf-8 -*-                                                                                                  
+#-*- coding:utf-8 -*-
 
 from builtins import range
 
@@ -83,7 +83,7 @@ class instruction_wasm(instruction):
                 'i64.load16_s',
                 'i64.load16_u',
                 'i64.load32_s',
-                'i64.load32_u', 
+                'i64.load32_u',
                 'i32.store',
                 'i64.store',
                 'f32.store',
@@ -258,7 +258,7 @@ class wasm_arg(m_arg):
     def asm_ast_to_expr(self, arg, loc_db):
         if isinstance(arg, AstInt):
             if hasattr(self, '_int_size'): # arg is LEB_128-encoded
-                return ExprInt(arg.value, self._int_size) 
+                return ExprInt(arg.value, self._int_size)
             fds
         if isinstance(arg, AstId):
             if isinstance(arg.name, ExprId):
@@ -346,7 +346,7 @@ def decode_LEB128(bl):
         if byt & 0x80 == 0:
             break
     return res, i
-        
+
 def get_LEB128_len(bs, max_len):
     '''
     gets the number of bytes a LEB128 is encoded on
@@ -450,7 +450,7 @@ class arg_br_table(wasm_arg):
 
         if len_head == None:
             return None
-        
+
         total_length = len_head
         for i in range(n_dest +1):
             total_length += get_LEB128_len(bs, 5)
@@ -490,7 +490,7 @@ class arg_br_table(wasm_arg):
             self.value += LEB128_bytes[-1]
             self.l += len(LEB128_bytes) * 8
         return True
-        
+
 
 VALTYPES = [
     (0x7F,'i32'),

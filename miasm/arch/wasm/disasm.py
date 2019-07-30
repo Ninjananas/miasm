@@ -136,14 +136,14 @@ class PendingBasicBlocks(object):
             for block in br_todo:
                 block.bto.add(AsmConstraint(br_key, AsmConstraint.c_to))
                 self._add_done(block)
-            
+
             if len(if_todo) > 1:
                 raise Exception('Malformed code')
             if if_todo != []:
                 else_key = pop_struct.else_key
                 if_todo[0].add_cst(else_key, AsmConstraint.c_next)
                 self._add_done(if_todo[0])
-            
+
         else:
             raise Exception('{} is not a structure instruction'.format(kind))
 
@@ -179,7 +179,7 @@ class PendingBasicBlocks(object):
             label = self._structs[-1-arg].label
             if label is not None:
                 block.lines[-1].args = [ExprId(label, 0)]
-                
+
 
         elif name == 'br_table':
             args =  [int(i) for i in block.lines[-1].getdstflow(self.loc_db)]
@@ -191,7 +191,7 @@ class PendingBasicBlocks(object):
                 label = self._structs[-1-arg].label
                 if label is not None:
                     block.lines[-1].args[i] = ExprId(label, 0)
-                
+
         elif name == 'return':
             self._br_todo[0].append(block)
 
@@ -296,13 +296,13 @@ class dis_wasm(disasmEngine):
 
             ## Instruction loop ##
             while not pending_blocks.is_done:
-            
+
                 lines_cpt += 1
                 # Check line watchdog
                 if self.lines_wd is not None and lines_cpt > self.lines_wd:
                     log_asmblock.debug("lines watchdog reached at %X", int(cur_offset))
                     break
-                    
+
                 # Try to disassemble instruction
                 instr, error = self.dis_instr(bs, cur_offset)
 
@@ -343,7 +343,7 @@ class dis_wasm(disasmEngine):
 
                 if not instr.breakflow():
                     continue
-                
+
                 if instr.splitflow() and not (instr.is_subcall() and self.dontdis_retcall):
                     if prebuilt_key is None:
                         prebuilt_key = self.loc_db.add_location()

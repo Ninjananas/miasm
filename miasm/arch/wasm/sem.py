@@ -137,7 +137,7 @@ def s_loop(ir, instr, *args):
 
 def s_call(ir, instr, *args):
     fds
-    
+
 def s_if(ir, instr, *args):
     print(dir(instr))
     fds
@@ -146,6 +146,14 @@ def s_else(ir, instr, *args):
     fds
 
 def s_end(ir, instr, *args):
+    fds
+
+## Branch instructions
+
+def br(ir, instr, dest):
+    return [ExprAssign(ir.IRDst, dest)], []
+
+def br_table(ir, instr, *args):
     fds
 
 ## Operations on integers
@@ -200,7 +208,7 @@ def ibinop(ir, instr):
     _, ofs_vals = pop(ir, vt, 2)
     res = IBINOPS[op]([get_at(ir, ofs, vt) for ofs in ofs_vals])
     aff_res = overwrite_at(ir, ofs_vals[1], res)
-    
+
     # Move the stack
     mv_sp = add_sp(ir, size_on_stack(vt))
     return [mv_sp, aff_res], []
@@ -279,7 +287,7 @@ def i2i(ir, instr):
 ##### Mnemonics indexing #####
 
 ''' #TODO#
-if / loop / block / else / br...
+if / loop / block / else...
 calls
 memories
 branches
